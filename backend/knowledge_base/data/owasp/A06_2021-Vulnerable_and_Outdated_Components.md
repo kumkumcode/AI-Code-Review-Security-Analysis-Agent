@@ -1,128 +1,139 @@
-# A06:2021 – Vulnerable and Outdated Components    ![icon](assets/TOP_10_Icons_Final_Vulnerable_Outdated_Components.png){: style="height:80px;width:80px" align="right"}
+Copy and paste this entire code block directly into your main A06_2021-Vulnerable_and_Outdated_Components.md file:
+
+Markdown
+---
+id: OWASP-2021-A06
+title: Vulnerable and Outdated Components
+category: Vulnerable and Outdated Components
+severity_hint: Medium
+languages: [python, java]
+cwes: [CWE-937, CWE-1035, CWE-1104]
+related_guidelines: [COMPONENTS-1, INVENTORY-1]
+---
+
+# A06:2021 – Vulnerable and Outdated Components
 
 ## Factors
 
 | CWEs Mapped | Max Incidence Rate | Avg Incidence Rate | Max Coverage | Avg Coverage | Avg Weighted Exploit | Avg Weighted Impact | Total Occurrences | Total CVEs |
 |:-------------:|:--------------------:|:--------------------:|:--------------:|:--------------:|:----------------------:|:---------------------:|:-------------------:|:------------:|
-| 3           | 27.96%             | 8.77%              | 51.78%       | 22.47%       | 5.00                 | 5.00                | 30,457            | 0          |
+| 3 | 27.96% | 8.77% | 51.78% | 22.47% | 5.00 | 5.00 | 30,457 | 0 |
 
 ## Overview
+Vulnerable Components are a known structural risk that teams struggle to systematically test and assess. Because components typically execute with the same system privileges as the parent application itself, a vulnerability in any third-party library can lead to a complete host compromise.
 
-It was #2 from the Top 10 community survey but also had enough data to make the
-Top 10 via data. Vulnerable Components are a known issue that we
-struggle to test and assess risk and is the only category to not have
-any Common Vulnerability and Exposures (CVEs) mapped to the included CWEs, so a default exploits/impact
-weight of 5.0 is used. Notable CWEs included are *CWE-1104: Use of
-Unmaintained Third-Party Components* and the two CWEs from Top 10 2013
-and 2017.
-
-## Description 
-
-You are likely vulnerable:
-
--   If you do not know the versions of all components you use (both
-    client-side and server-side). This includes components you directly
-    use as well as nested dependencies.
-
--   If the software is vulnerable, unsupported, or out of date. This
-    includes the OS, web/application server, database management system
-    (DBMS), applications, APIs and all components, runtime environments,
-    and libraries.
-
--   If you do not scan for vulnerabilities regularly and subscribe to
-    security bulletins related to the components you use.
-
--   If you do not fix or upgrade the underlying platform, frameworks,
-    and dependencies in a risk-based, timely fashion. This commonly
-    happens in environments when patching is a monthly or quarterly task
-    under change control, leaving organizations open to days or months
-    of unnecessary exposure to fixed vulnerabilities.
-
--   If software developers do not test the compatibility of updated,
-    upgraded, or patched libraries.
-
--   If you do not secure the components’ configurations (see
-    [A05:2021-Security Misconfiguration](A05_2021-Security_Misconfiguration.md)).
-
-## How to Prevent
-
-There should be a patch management process in place to:
-
--   Remove unused dependencies, unnecessary features, components, files,
-    and documentation.
-
--   Continuously inventory the versions of both client-side and
-    server-side components (e.g., frameworks, libraries) and their
-    dependencies using tools like versions, OWASP Dependency Check,
-    retire.js, etc. Continuously monitor sources like Common Vulnerability and 
-    Exposures (CVE) and National Vulnerability Database (NVD) for
-    vulnerabilities in the components. Use software composition analysis
-    tools to automate the process. Subscribe to email alerts for
-    security vulnerabilities related to components you use.
-
--   Only obtain components from official sources over secure links.
-    Prefer signed packages to reduce the chance of including a modified,
-    malicious component (see [A08:2021-Software and Data Integrity
-    Failures](A08_2021-Software_and_Data_Integrity_Failures.md)).
-
--   Monitor for libraries and components that are unmaintained or do not
-    create security patches for older versions. If patching is not
-    possible, consider deploying a virtual patch to monitor, detect, or
-    protect against the discovered issue.
-
-Every organization must ensure an ongoing plan for monitoring, triaging,
-and applying updates or configuration changes for the lifetime of the
-application or portfolio.
-
-## Example Attack Scenarios
-
-**Scenario #1:** Components typically run with the same privileges as
-the application itself, so flaws in any component can result in serious
-impact. Such flaws can be accidental (e.g., coding error) or intentional
-(e.g., a backdoor in a component). Some example exploitable component
-vulnerabilities discovered are:
-
--   CVE-2017-5638, a Struts 2 remote code execution vulnerability that
-    enables the execution of arbitrary code on the server, has been
-    blamed for significant breaches.
-
--   While the internet of things (IoT) is frequently difficult or
-    impossible to patch, the importance of patching them can be great
-    (e.g., biomedical devices).
-
-There are automated tools to help attackers find unpatched or
-misconfigured systems. For example, the Shodan IoT search engine can
-help you find devices that still suffer from Heartbleed vulnerability
-patched in April 2014.
-
-## References
-- [OWASP Application Security Verification Standard: V1 Architecture, design and threat modelling](/www-project-application-security-verification-standard)
-
-- [OWASP Dependency Check (for Java and .NET libraries)](/www-project-dependency-check)
-
-- [OWASP Testing Guide - Map Application Architecture (OTG-INFO-010)](/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/01-Information_Gathering/10-Map_Application_Architecture)
-
-- [OWASP Virtual Patching Best Practices](/www-community/Virtual_Patching_Best_Practices)
-
-- [The Unfortunate Reality of Insecure Libraries](https://cdn2.hubspot.net/hub/203759/file-1100864196-pdf/docs/Contrast_-_Insecure_Libraries_2014.pdf)
-
-- [MITRE Common Vulnerabilities and Exposures (CVE) search](https://www.cvedetails.com/version-search.php)
-
-- [National Vulnerability Database (NVD)](https://nvd.nist.gov/)
-
-- [Retire.js for detecting known vulnerable JavaScript libraries](https://github.com/retirejs/retire.js/)
-
-- [GitHub Advisory Database](https://github.com/advisories)
-
-- [Ruby Libraries Security Advisory Database and Tools](https://rubysec.com/)
-
-- [SAFECode Software Integrity Controls \[PDF\]](https://safecode.org/publication/SAFECode_Software_Integrity_Controls0610.pdf)
+### 🛡️ Dependency Validation Pipeline
+┌─────────────────────────────────────────────────────────────┐
+│                 Third-Party Package Registry                │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 1. EXPLICIT PINNING (Enforce hash-checked lockfiles)        │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. SOFTWARE COMPOSITION ANALYSIS (SCA) (pip-audit / Maven)  │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. RUNTIME PRIVILEGE SANITIZATION (Least privilege limits)  │
+└─────────────────────────────────────────────────────────────┘
 
 
-## List of Mapped CWEs
+---
 
-[CWE-937 OWASP Top 10 2013: Using Components with Known Vulnerabilities](https://cwe.mitre.org/data/definitions/937.html)
+## Modern Python Examples
 
-[CWE-1035 2017 Top 10 A9: Using Components with Known Vulnerabilities](https://cwe.mitre.org/data/definitions/1035.html)
+### ❌ Insecure Python Dependency Management (Unpinned / Floating Versions)
+Allowing dependencies to resolve dynamically or leaving them floating without constraints (`requirements.txt`) introduces serious risk. It permits the silent installation of untested major versions or compromised dependency chains.
+```text
+# requirements.txt - VULNERABLE
+flask
+requests
+# These will resolve to the latest available versions during build time,
+# potentially introducing breaking changes or supply-chain compromises.
+✅ Secure Python Dependency Management (Pinned & Hash-Locked)
+Enforcing strict version matching and utilizing integrity hashes in lockfiles guarantees that deployment artifacts match verified local security audits exactly.
 
-[CWE-1104 Use of Unmaintained Third Party Components](https://cwe.mitre.org/data/definitions/1104.html)
+Plaintext
+# requirements.txt - SECURE
+flask==3.0.3
+requests==2.32.3
+
+# For optimal pipeline security, leverage poetry.lock or requirements.txt with hash checks:
+# requests==2.32.3 --hash=sha256:74d754ab24d274c...
+To audit Python dependencies in your build pipeline, run:
+
+Bash
+# Run SCA scan locally and within CI/CD pipelines
+pip-audit -r requirements.txt
+Modern Java Examples
+❌ Insecure Maven POM (Outdated, Vulnerable Library)
+Using obsolete components with publicly cataloged Remote Code Execution (RCE) vectors leaves applications fully exposed.
+
+XML
+<!-- pom.xml - VULNERABLE -->
+<dependency>
+    <groupId>org.apache.struts</groupId>
+    <artifactId>struts2-core</artifactId>
+    <!-- VULNERABLE: Susceptible to CVE-2017-5638 RCE via malicious Content-Type headers -->
+    <version>2.3.20</version> 
+</dependency>
+✅ Secure Maven POM (Remediated Stable Release)
+Upgrading transitive and direct dependencies to actively maintained and patched versions.
+
+XML
+<!-- pom.xml - SECURE -->
+<dependency>
+    <groupId>org.apache.struts</groupId>
+    <artifactId>struts2-core</artifactId>
+    <!-- SECURE: Fully patched release mitigating historical execution vectors -->
+    <version>6.3.0.2</version>
+</dependency>
+To continuously inspect Java vulnerabilities via your build lifecycle, integrate the OWASP dependency-check plugin:
+
+XML
+<plugin>
+    <groupId>org.owasp</groupId>
+    <artifactId>dependency-check-maven</artifactId>
+    <version>9.0.9</version>
+    <executions>
+        <execution>
+            <goals>
+                <goal>check</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+Real-World Edge Cases & Advanced Vulnerabilities
+1. Transitive (Nested) Dependencies
+While your root components might appear modern, they may import nested dependencies that are unmaintained, outdated, or vulnerable.
+
+The Flaw: Direct dependency audits overlook vulnerabilities deep within the package tree.
+
+Remediation: Generate an exhaustive Software Bill of Materials (SBOM) and run continuous Software Composition Analysis (SCA) deep-tree analysis.
+
+2. Supply-Chain Dependency Confusion & Typo-Squatting
+Attackers register malicious packages on public registries (e.g., PyPI, Maven Central) using names similar to popular internal private packages.
+
+The Flaw: Build environments configured without private registry scopes download malicious public packages instead.
+
+Remediation: Enforce scoped registries, use internal artifact repositories (e.g., Nexus, Artifactory), and disable fallback searches to external unverified mirrors.
+
+How to Prevent
+Enforce Complete Inventories: Continuously audit client-side and server-side libraries using SCA tools.
+
+Explicit Dependency Pinning: Never rely on dynamic floating versions. Enforce precise versions and SHA verification hashes.
+
+Minimize Attack Surface: Proactively remove unused modules, framework samples, test harnesses, and redundant database adapters.
+
+Automate Patch Pipelines: Establish recurring cycles to inspect, build, and deploy verified security updates for all stack layers.
+
+References
+OWASP Dependency-Check Project
+
+GitHub Advisory Database
+
+National Vulnerability Database (NVD)
+
+OWASP Virtual Patching Best Practices

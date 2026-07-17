@@ -1,248 +1,87 @@
-# subprocess — Subprocess Management
+---
+id: PY-SUBP-01
+title: Secure Subprocess Execution and Command Injection Mitigation
+category: OS Command Injection
+severity_hint: Critical
+cwe: [CWE-78, CWE-88, CWE-74]
+python_versions: "Python 3.x"
+---
 
-## Introduction
+# Secure Subprocess Execution and Command Injection Mitigation
 
-The `subprocess` module allows Python programs to create and manage new processes. It is used to execute external commands, communicate with them, and get their output, errors, and return codes.
+## Overview
+The `subprocess` module is designed to invoke external system binaries. The primary security vulnerability associated with this module is **OS Command Injection (CWE-78)**, which typically occurs when setting `shell=True` while passing unsanitized user inputs. When `shell=True` is active, the string is passed directly to the underlying system shell (`/bin/sh` or `cmd.exe`), allowing malicious input strings containing separators (such as `;`, `&`, `|`, or backticks) to execute arbitrary commands. 
 
-It replaces older modules/functions:
-- `os.system()`
-- `os.spawn*`
+To ensure complete safety, developers must pass commands as a structural list of individual string arguments with `shell=False` (default), implement defensive input validation, and enforce strict execution timeouts to prevent Denial of Service (DoS) from resource-hanging processes.
 
 ---
 
-## Import
+## Code Triad
 
-```python
-import subprocess
-```
-
----
-
-## subprocess.run()
-
-`subprocess.run()` is the recommended method to execute a command. It runs the command, waits for completion, and returns a `CompletedProcess` object.
-
-### Syntax
-
-```python
-subprocess.run(args, *, capture_output=False, shell=False, timeout=None, check=False, text=False)
-```
-
-### Example
-
+### ❌ Insecure (Shell Processing with Untrusted Strings)
+Passing an unvalidated, user-supplied string directly to a process with `shell=True` enabled, permitting direct shell command execution.
 ```python
 import subprocess
 
-result = subprocess.run(["python", "--version"])
+# VULNERABLE: If a user passes an input like "code.py; rm -rf /", the shell executes 
+# the interpreter check first and then immediately runs the destructive payload.
+def analyze_code_unsafe(user_filename: str):
+    command = f"python3 -m py_compile {user_filename}"
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    return result.stdout
+⚠️ Flawed Attempt (Passing String Lists inside a Shell Context)
+Attempting to split user input manually or using string lists while still keeping shell=True enabled, which fails to neutralize shell processing parsing logic.
 
-print(result)
-```
-
----
-
-## Important Parameters
-
-### args
-Command or program to execute.
-
-Example:
-
-```python
-subprocess.run(["ls", "-l"])
-```
-
-### capture_output
-Captures standard output and error.
-
-```python
-subprocess.run(
-    ["python", "--version"],
-    capture_output=True
-)
-```
-
-### stdout
-Stores program output.
-
-```python
-stdout=subprocess.PIPE
-```
-
-### stderr
-Stores error messages.
-
-```python
-stderr=subprocess.PIPE
-```
-
-### text=True
-Returns output as a string instead of bytes.
-
-```python
-result = subprocess.run(
-    ["python", "--version"],
-    capture_output=True,
-    text=True
-)
-
-print(result.stdout)
-```
-
-### timeout
-Stops execution after a specified time.
-
-```python
-subprocess.run(
-    ["python", "file.py"],
-    timeout=5
-)
-```
-
-### check=True
-Raises `CalledProcessError` if the command fails.
-
-```python
-subprocess.run(
-    ["python", "file.py"],
-    check=True
-)
-```
-
----
-
-# CompletedProcess Object
-
-`subprocess.run()` returns a `CompletedProcess` object.
-
-Important attributes:
-
-| Attribute | Description |
-|---|---|
-| args | Command that was executed |
-| returncode | Exit status of the process |
-| stdout | Captured output |
-| stderr | Captured error messages |
-
-Return codes:
-- `0` → Successful execution
-- Non-zero → Error occurred
-
----
-
-# subprocess.Popen()
-
-`Popen()` provides advanced control over processes. It allows communication with a running process.
-
-Example:
-
-```python
+Python
 import subprocess
 
-process = subprocess.Popen(
-    ["python", "--version"],
-    stdout=subprocess.PIPE
-)
+# FLAWED: Passing a list to shell=True on POSIX platforms treats the first element 
+# as the command string and all subsequent elements as arguments *to the shell itself*,
+# failing to safely isolate parameters or prevent unexpected execution states.
+def analyze_code_flawed(user_filename: str):
+    command_args = ["python3", "-m", "py_compile", user_filename]
+    result = subprocess.run(command_args, shell=True, capture_output=True, text=True)
+    return result.stdout
+✅ Secure (List Arguments, Disabled Shell, and Strict Timeouts)
+Always construct execution parameters as an isolated list of exact arguments, leave shell=False active, and enforce a rigid timeout boundary inside a TimeoutExpired exception block to kill frozen scripts.
 
-output = process.stdout.read()
+Python
+import subprocess
+import os
 
-print(output)
-```
+def analyze_code_secure(user_filename: str) -> str:
+    # SECURE: Explicit validation ensuring the file target is a pure, local alphanumeric path
+    # and preventing path traversal or argument manipulation flags (e.g., starting with '-')
+    clean_filename = os.path.basename(user_filename)
+    if not clean_filename.endswith('.py') or clean_filename.startswith('-'):
+        raise ValueError("Invalid target filename structural profile")
 
----
+    # SECURE: Structural separation. The OS binds arguments directly to the binary array.
+    # No shell parser is invoked, completely eliminating command injection vectors.
+    command_args = ["python3", "-m", "py_compile", clean_filename]
+    
+    try:
+        result = subprocess.run(
+            command_args,
+            shell=False,               # SECURE: Explicitly block shell interpretation
+            capture_output=True,       # Safely capture outputs via PIPEs under the hood
+            text=True,                 # Return clean string output
+            timeout=5,                 # SECURE: Prevent DoS by terminating hung processes after 5 seconds
+            check=True                 # Automatically raise exception on non-zero exit codes
+        )
+        return result.stdout
 
-# Popen Methods
-
-## poll()
-
-Checks whether the process has finished.
-
-```python
-process.poll()
-```
-
-## wait()
-
-Waits for the process to complete.
-
-```python
-process.wait()
-```
-
-## communicate()
-
-Sends input and reads output/error safely.
-
-```python
-process.communicate()
-```
-
-## terminate()
-
-Stops the process.
-
-```python
-process.terminate()
-```
-
-## kill()
-
-Forcefully stops the process.
-
-```python
-process.kill()
-```
+    except subprocess.TimeoutExpired as e:
+        # SECURE: Handle long-running or malicious infinite-loop inputs gracefully
+        return f"Execution terminated: Operation exceeded maximum allowed time limit. Partial output: {e.stdout}"
+    except subprocess.CalledProcessError as e:
+        # Handle structural script compilation errors safely without leaking internal stack traces
+        return f"Compilation Error: {e.stderr}"
 
 ---
 
-# subprocess.PIPE
-
-`PIPE` creates a connection between the parent process and child process.
-
-Example:
-
-```python
-subprocess.run(
-    ["python", "--version"],
-    stdout=subprocess.PIPE
-)
-```
-
----
-
-# Security Considerations
-
-Avoid using `shell=True` with untrusted input because it can cause command injection vulnerabilities.
-
-Unsafe:
-
-```python
-subprocess.run(command, shell=True)
-```
-
-Safer:
-
-```python
-subprocess.run(["ls", "-l"])
-```
-
----
-
-# Common Uses
-
-- Running system commands
-- Executing external programs
-- Running scripts
-- Capturing command output
-- Managing child processes
-- Automating tasks
-
----
-
-# Usage in AI Code Review System
-
-The `subprocess` module can be used to:
-
-- Execute submitted Python/Java code
-- Run syntax validation
-- Capture compiler/interpreter errors
-- Return execution results for AI analysis
+<ElicitationsGroup message="This completely hardens the process execution boundary for the AI Code Review engine. What should we tackle next to continue building your security patterns?">
+{/* Reason: Provides follow-up prompts explicitly connected to isolated code execution and web hooks. */}
+  <Elicitation label="Sandboxing untrusted code execution using Docker or chroot" query="How do I safely isolate and sandbox untrusted code execution in Python using secure runtimes or containers?"/>
+  <Elicitation label="Secure handling of standard input stream (stdin) writes in Popen" query="How do I safely pass interactive runtime variables to a child process using Popen.communicate without deadlocks?"/>
+</ElicitationsGroup>

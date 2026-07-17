@@ -37,8 +37,15 @@ class DocumentLoader:
 
                 category = parts[0] if len(parts) > 1 else "general"
                 language = "n/a"
+                
+                # Check 1: Extract language if in a secure_coding subfolder structure
                 if category == "secure_coding" and len(parts) > 2:
                     language = parts[1]
+                # Check 2: Extract language dynamically from filename prefixes (e.g., java_... or python_...)
+                elif filename.lower().startswith("java_"):
+                    language = "java"
+                elif filename.lower().startswith("python_"):
+                    language = "python"
 
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read().strip()

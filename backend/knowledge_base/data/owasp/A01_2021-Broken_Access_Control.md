@@ -1,200 +1,148 @@
-# A01:2021 – Broken Access Control    ![icon](assets/TOP_10_Icons_Final_Broken_Access_Control.png){: style="height:80px;width:80px" align="right"}
+---
+id: OWASP-2021-A01
+title: Broken Access Control
+category: Access Control
+severity_hint: High
+languages: [python, java]
+cwes: [CWE-22, CWE-200, CWE-284, CWE-285, CWE-352, CWE-566, CWE-639, CWE-862, CWE-863]
+related_guidelines: [ACCESS-1, CONFIDENTIAL-1]
+---
 
-## Factors
-
-| CWEs Mapped | Max Incidence Rate | Avg Incidence Rate | Avg Weighted Exploit | Avg Weighted Impact | Max Coverage | Avg Coverage | Total Occurrences | Total CVEs |
-|:-------------:|:--------------------:|:--------------------:|:--------------:|:--------------:|:----------------------:|:---------------------:|:-------------------:|:------------:|
-| 34          | 55.97%             | 3.81%              | 6.92                 | 5.93                | 94.55%       | 47.72%       | 318,487           | 19,013     |
+# A01:2021 – Broken Access Control
 
 ## Overview
+Access control restricts user operations based on authorization policies. When access control fails, attackers can bypass authorization checks, access sensitive resources (IDOR/BOLA), elevate privileges, or tamper with metadata.
 
-Moving up from the fifth position, 94% of applications were tested for
-some form of broken access control with the average incidence rate of 3.81%, and has the most occurrences in the contributed dataset with over 318k. Notable Common Weakness Enumerations (CWEs) included are *CWE-200: Exposure of Sensitive Information to an Unauthorized Actor*, *CWE-201:
-Insertion of Sensitive Information Into Sent Data*, and *CWE-352:
-Cross-Site Request Forgery*.
+### 🛡️ Defense-in-Depth Architecture
+┌─────────────────────────────────────────────────────────────┐
+│                    Internet / API Client                     │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 1. ROUTE GUARD (Role / Authentication verification)         │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. CONTROLLER / SERVICE (Explicit Resource Ownership check) │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. DATABASE / STORAGE (Row-Level Security / Tenant Isolation)│
+└─────────────────────────────────────────────────────────────┘
+---
 
-## Description
+## Modern Python (FastAPI + SQLAlchemy) Examples
 
-Access control enforces policy such that users cannot act outside of
-their intended permissions. Failures typically lead to unauthorized
-information disclosure, modification, or destruction of all data or
-performing a business function outside the user's limits. Common access
-control vulnerabilities include:
+### ❌ Insecure (BOLA / IDOR)
+The application relies solely on the path variable and performs no validation to check if the current user owns the requested invoice.
+```python
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+from database import get_db, Invoice
 
--   Violation of the principle of least privilege or deny by default,
-    where access should only be granted for particular capabilities,
-    roles, or users, but is available to anyone.
+app = FastAPI()
 
--   Bypassing access control checks by modifying the URL (parameter
-    tampering or force browsing), internal application state, or the
-    HTML page, or by using an attack tool modifying API requests.
+@app.get("/invoices/{invoice_id}")
+def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    # VULNERABLE: Any authenticated user can view any invoice by guessing the ID
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    return invoice
+✅ Secure (Granular Resource Ownership)
+We enforce both user authentication and explicit resource ownership checks within the database query execution.
 
--   Permitting viewing or editing someone else's account, by providing
-    its unique identifier (insecure direct object references)
+Python
+from fastapi import FastAPI, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from database import get_db, Invoice
+from auth import get_current_user, User
 
--   Accessing API with missing access controls for POST, PUT and DELETE.
+app = FastAPI()
 
--   Elevation of privilege. Acting as a user without being logged in or
-    acting as an admin when logged in as a user.
-
--   Metadata manipulation, such as replaying or tampering with a JSON
-    Web Token (JWT) access control token, or a cookie or hidden field
-    manipulated to elevate privileges or abusing JWT invalidation.
-
--   CORS misconfiguration allows API access from unauthorized/untrusted
-    origins.
-
--   Force browsing to authenticated pages as an unauthenticated user or
-    to privileged pages as a standard user.
-
-## How to Prevent
-
-Access control is only effective in trusted server-side code or
-server-less API, where the attacker cannot modify the access control
-check or metadata.
-
--   Except for public resources, deny by default.
-
--   Implement access control mechanisms once and re-use them throughout
-    the application, including minimizing Cross-Origin Resource Sharing (CORS) usage.
-
--   Model access controls should enforce record ownership rather than
-    accepting that the user can create, read, update, or delete any
-    record.
-
--   Unique application business limit requirements should be enforced by
-    domain models.
-
--   Disable web server directory listing and ensure file metadata (e.g.,
-    .git) and backup files are not present within web roots.
-
--   Log access control failures, alert admins when appropriate (e.g.,
-    repeated failures).
-
--   Rate limit API and controller access to minimize the harm from
-    automated attack tooling.
-
--   Stateful session identifiers should be invalidated on the server after logout.
-    Stateless JWT tokens should rather be short-lived so that the window of 
-    opportunity for an attacker is minimized. For longer lived JWTs it's highly recommended to
-    follow the OAuth standards to revoke access.
-
-Developers and QA staff should include functional access control unit
-and integration tests.
-
-## Example Attack Scenarios
-
-**Scenario #1:** The application uses unverified data in a SQL call that
-is accessing account information:
-
-```
- pstmt.setString(1, request.getParameter("acct"));
- ResultSet results = pstmt.executeQuery( );
-```
-
-An attacker simply modifies the browser's 'acct' parameter to send
-whatever account number they want. If not correctly verified, the
-attacker can access any user's account.
-
-```
- https://example.com/app/accountInfo?acct=notmyacct
-```
-
-**Scenario #2:** An attacker simply force browses to target URLs. Admin
-rights are required for access to the admin page.
-
-```
- https://example.com/app/getappInfo
- https://example.com/app/admin_getappInfo
-```
-If an unauthenticated user can access either page, it's a flaw. If a
-non-admin can access the admin page, this is a flaw.
-
-## References
-
--   [OWASP Proactive Controls: Enforce Access
-    Controls](https://owasp.org/www-project-proactive-controls/v3/en/c7-enforce-access-controls)
-
--   [OWASP Application Security Verification Standard: V4 Access
-    Control](https://owasp.org/www-project-application-security-verification-standard)
-
--   [OWASP Testing Guide: Authorization
-    Testing](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/README)
-
--   [OWASP Cheat Sheet: Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html)
-
--   [PortSwigger: Exploiting CORS
-    misconfiguration](https://portswigger.net/blog/exploiting-cors-misconfigurations-for-bitcoins-and-bounties)
+@app.get("/invoices/{invoice_id}", status_code=status.HTTP_200_OK)
+def get_invoice(
+    invoice_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    # SECURE: Bind query parameters to both Resource ID and User ID
+    invoice = db.query(Invoice).filter(
+        Invoice.id == invoice_id, 
+        Invoice.owner_id == current_user.id
+    ).first()
     
--   [OAuth: Revoking Access](https://www.oauth.com/oauth2-servers/listing-authorizations/revoking-access/)
+    if not invoice:
+        # Prevent resource enumeration by returning 404 instead of 403
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Invoice not found"
+        )
+    return invoice
+Modern Java (Spring Boot + Spring Security) Examples
+❌ Insecure (Missing Access Control)
+Java
+@RestController
+@RequestMapping("/api/accounts")
+public class AccountController {
 
-## List of Mapped CWEs
+    @Autowired
+    private AccountRepository accountRepository;
 
-[CWE-22 Improper Limitation of a Pathname to a Restricted Directory
-('Path Traversal')](https://cwe.mitre.org/data/definitions/22.html)
+    @GetMapping("/{accountId}")
+    public AccountResponse getAccount(@PathVariable UUID accountId) {
+        // VULNERABLE: Lacks role checking and ownership validation
+        return accountRepository.findById(accountId)
+            .map(AccountResponse::new)
+            .orElseThrow(() -> new ResourceNotFoundException());
+    }
+}
+✅ Secure (Declarative & Programmatic Authorization)
+By combining Spring Security annotations with custom service-level evaluations, we guarantee robust security boundaries.
 
-[CWE-23 Relative Path Traversal](https://cwe.mitre.org/data/definitions/23.html)
+Java
+@RestController
+@RequestMapping("/api/accounts")
+public class AccountController {
 
-[CWE-35 Path Traversal: '.../...//'](https://cwe.mitre.org/data/definitions/35.html)
+    @Autowired
+    private AccountService accountService;
 
-[CWE-59 Improper Link Resolution Before File Access ('Link Following')](https://cwe.mitre.org/data/definitions/59.html)
+    @GetMapping("/{accountId}")
+    @PreAuthorize("hasRole('ROLE_USER')")
+    public AccountResponse getAccount(
+        @PathVariable UUID accountId, 
+        @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        // SECURE: Business logic layer validates principal ownership over resource
+        Account account = accountService.getAccountForUser(accountId, principal.getId());
+        return new AccountResponse(account);
+    }
+}
+Real-World Edge Cases & Advanced Vulnerabilities
+1. The "UUID-as-Security" Fallacy
+Many developers believe swapping sequential integers (e.g., /invoice/101) with UUIDs (e.g., /invoice/9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d) solves IDOR.
 
-[CWE-200 Exposure of Sensitive Information to an Unauthorized Actor](https://cwe.mitre.org/data/definitions/200.html)
+Reality: UUIDs only prevent guessing via sequential scanning; they do not enforce authorization. If a UUID is leaked in system logs, referrers, or HTTP payloads, an unauthorized actor can still access it if the endpoint lacks owner checks.
 
-[CWE-201 Exposure of Sensitive Information Through Sent Data](https://cwe.mitre.org/data/definitions/201.html)
+2. BOLA in GraphQL Nested Resolvers
+In GraphQL, endpoint-level path authorization fails because queries can traverse object relationships dynamically.
 
-[CWE-219 Storage of File with Sensitive Data Under Web Root](https://cwe.mitre.org/data/definitions/219.html)
+# An attacker can bypass top-level query rules by nesting queries:
+query {
+  me {
+    friends {
+      invoices {  # Under-secured nested resolver leaks data
+        amount
+        billingAddress
+      }
+    }
+  }
+}
 
-[CWE-264 Permissions, Privileges, and Access Controls (should no longer be used)](https://cwe.mitre.org/data/definitions/264.html)
+Remediation: Enforce permission and ownership assertions at the resolver layer for every nested object, rather than just inspecting top-level queries.
 
-[CWE-275 Permission Issues](https://cwe.mitre.org/data/definitions/275.html)
+Key Engineering Rules
+Never Trust Input IDs: Always cross-reference client-supplied IDs with session identity tokens inside server-side transactions.
 
-[CWE-276 Incorrect Default Permissions](https://cwe.mitre.org/data/definitions/276.html)
+Deny by Default: Restrict routing, API methods, and assets at the system gate; explicitly open routes only when needed.
 
-[CWE-284 Improper Access Control](https://cwe.mitre.org/data/definitions/284.html)
-
-[CWE-285 Improper Authorization](https://cwe.mitre.org/data/definitions/285.html)
-
-[CWE-352 Cross-Site Request Forgery (CSRF)](https://cwe.mitre.org/data/definitions/352.html)
-
-[CWE-359 Exposure of Private Personal Information to an Unauthorized Actor](https://cwe.mitre.org/data/definitions/359.html)
-
-[CWE-377 Insecure Temporary File](https://cwe.mitre.org/data/definitions/377.html)
-
-[CWE-402 Transmission of Private Resources into a New Sphere ('Resource Leak')](https://cwe.mitre.org/data/definitions/402.html)
-
-[CWE-425 Direct Request ('Forced Browsing')](https://cwe.mitre.org/data/definitions/425.html)
-
-[CWE-441 Unintended Proxy or Intermediary ('Confused Deputy')](https://cwe.mitre.org/data/definitions/441.html)
-
-[CWE-497 Exposure of Sensitive System Information to an Unauthorized Control Sphere](https://cwe.mitre.org/data/definitions/497.html)
-
-[CWE-538 Insertion of Sensitive Information into Externally-Accessible File or Directory](https://cwe.mitre.org/data/definitions/538.html)
-
-[CWE-540 Inclusion of Sensitive Information in Source Code](https://cwe.mitre.org/data/definitions/540.html)
-
-[CWE-548 Exposure of Information Through Directory Listing](https://cwe.mitre.org/data/definitions/548.html)
-
-[CWE-552 Files or Directories Accessible to External Parties](https://cwe.mitre.org/data/definitions/552.html)
-
-[CWE-566 Authorization Bypass Through User-Controlled SQL Primary Key](https://cwe.mitre.org/data/definitions/566.html)
-
-[CWE-601 URL Redirection to Untrusted Site ('Open Redirect')](https://cwe.mitre.org/data/definitions/601.html)
-
-[CWE-639 Authorization Bypass Through User-Controlled Key](https://cwe.mitre.org/data/definitions/639.html)
-
-[CWE-651 Exposure of WSDL File Containing Sensitive Information](https://cwe.mitre.org/data/definitions/651.html)
-
-[CWE-668 Exposure of Resource to Wrong Sphere](https://cwe.mitre.org/data/definitions/668.html)
-
-[CWE-706 Use of Incorrectly-Resolved Name or Reference](https://cwe.mitre.org/data/definitions/706.html)
-
-[CWE-862 Missing Authorization](https://cwe.mitre.org/data/definitions/862.html)
-
-[CWE-863 Incorrect Authorization](https://cwe.mitre.org/data/definitions/863.html)
-
-[CWE-913 Improper Control of Dynamically-Managed Code Resources](https://cwe.mitre.org/data/definitions/913.html)
-
-[CWE-922 Insecure Storage of Sensitive Information](https://cwe.mitre.org/data/definitions/922.html)
-
-[CWE-1275 Sensitive Cookie with Improper SameSite Attribute](https://cwe.mitre.org/data/definitions/1275.html)
+Handle Enumeration Hazards: Return generic 404 Not Found messages instead of descriptive 403 Forbidden errors to prevent attackers from mapping active IDs.

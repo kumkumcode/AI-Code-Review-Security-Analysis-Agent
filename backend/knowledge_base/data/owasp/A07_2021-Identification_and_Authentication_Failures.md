@@ -1,165 +1,158 @@
-# A07:2021 – Identification and Authentication Failures    ![icon](assets/TOP_10_Icons_Final_Identification_and_Authentication_Failures.png){: style="height:80px;width:80px" align="right"}
+Copy and paste this entire code block directly into your main A07_2021-Identification_and_Authentication_Failures.md file:
+
+Markdown
+---
+id: OWASP-2021-A07
+title: Identification and Authentication Failures
+category: Identification and Authentication Failures
+severity_hint: High
+languages: [python, java]
+cwes: [CWE-255, CWE-259, CWE-287, CWE-288, CWE-290, CWE-294, CWE-295, CWE-297, CWE-300, CWE-302, CWE-304, CWE-306, CWE-307, CWE-346, CWE-384, CWE-521, CWE-613, CWE-620, CWE-640, CWE-798, CWE-940, CWE-1216]
+related_guidelines: [AUTH-1, SESSION-1]
+---
+
+# A07:2021 – Identification and Authentication Failures
 
 ## Factors
 
 | CWEs Mapped | Max Incidence Rate | Avg Incidence Rate | Avg Weighted Exploit | Avg Weighted Impact | Max Coverage | Avg Coverage | Total Occurrences | Total CVEs |
 |:-------------:|:--------------------:|:--------------------:|:--------------:|:--------------:|:----------------------:|:---------------------:|:-------------------:|:------------:|
-| 22          | 14.84%             | 2.55%              | 7.40                 | 6.50                | 79.51%       | 45.72%       | 132,195           | 3,897      |
+| 22 | 14.84% | 2.55% | 7.40 | 6.50 | 79.51% | 45.72% | 132,195 | 3,897 |
 
 ## Overview
+Confirming user identity, authentication status, and active session boundaries is paramount for application security. Failure to properly manage session persistence, enforce strict authentication flows, or defend against automation exposes the platform to credential stuffing, brute-forcing, and hijacking attacks.
 
-Previously known as *Broken Authentication*, this category slid down
-from the second position and now includes Common Weakness 
-Enumerations (CWEs) related to identification
-failures. Notable CWEs included are *CWE-297: Improper Validation of
-Certificate with Host Mismatch*, *CWE-287: Improper Authentication*, and
-*CWE-384: Session Fixation*.
+### 🛡️ Authentication & Session Boundary Flow
+┌─────────────────────────────────────────────────────────────┐
+│                      Client Auth Request                    │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 1. RATE LIMITER / BOT PROTECTION (Mitigate brute-force /    │
+│    credential stuffing attempts using sliding windows)     │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. SECURE COMPARED CREDENTIALS (Secure hashing / Argon2)    │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. REGENERATE SESSION IDENTIFIER (Invalidate anonymous and   │
+│    hijacked session keys immediately upon authorization)    │
+└─────────────────────────────────────────────────────────────┘
 
-## Description 
 
-Confirmation of the user's identity, authentication, and session
-management is critical to protect against authentication-related
-attacks. There may be authentication weaknesses if the application:
+---
 
--   Permits automated attacks such as credential stuffing, where the
-    attacker has a list of valid usernames and passwords.
+## Modern Python Examples
 
--   Permits brute force or other automated attacks.
+### ❌ Insecure Python Authentication (No Rate Limiting / Brute-Force Exposed)
+Exposing credential verification routes directly to users without limits turns the system into an open oracle for credential-stuffing bots.
+```python
+from fastapi import FastAPI, Request, HTTPException
+from database import authenticate_user
 
--   Permits default, weak, or well-known passwords, such as "Password1"
-    or "admin/admin".
+app = FastAPI()
 
--   Uses weak or ineffective credential recovery and forgot-password
-    processes, such as "knowledge-based answers," which cannot be made
-    safe.
+@app.post("/login")
+async def login(request: Request):
+    data = await request.json()
+    # VULNERABLE: Direct access to password checks without invocation limits
+    user = authenticate_user(data.get("username"), data.get("password"))
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"status": "authenticated"}
+✅ Secure Python Authentication (Rate-Limited Authorization)
+Leveraging limits and generic error structures to defend routes against rapid iteration attacks.
 
--   Uses plain text, encrypted, or weakly hashed passwords data stores (see
-    [A02:2021-Cryptographic Failures](A02_2021-Cryptographic_Failures.md)).
+Python
+from fastapi import FastAPI, Request, HTTPException, status
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from database import authenticate_user
 
--   Has missing or ineffective multi-factor authentication.
+limiter = Limiter(key_func=get_remote_address)
+app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
--   Exposes session identifier in the URL.
+@app.post("/login")
+# SECURE: Strict sliding limit on structural login routes (e.g., 5 attempts per minute)
+@limiter.limit("5/minute")
+async def login(request: Request):
+    data = await request.json()
+    username = data.get("username", "")
+    password = data.get("password", "")
+    
+    user = authenticate_user(username, password)
+    # SECURE: Use generic response messages preventing username enumeration
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Incorrect username or password"
+        )
+    return {"status": "authenticated"}
+Modern Java Examples
+❌ Insecure Session Management (Session Fixation)
+Failing to rotate context identifiers during security transitions allows an attacker to intercept or plant an active anonymous session token.
 
--   Reuse session identifier after successful login.
+Java
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
 
--   Does not correctly invalidate Session IDs. User sessions or
-    authentication tokens (mainly single sign-on (SSO) tokens) aren't
-    properly invalidated during logout or a period of inactivity.
+public class LoginService {
+    public void handleAuthentication(HttpServletRequest request, User user) {
+        // VULNERABLE: Retaining the pre-login Session ID allows Session Fixation attacks
+        HttpSession session = request.getSession();
+        session.setAttribute("user", user);
+    }
+}
+✅ Secure Session Management (Dynamic Session Regeneration)
+Enforcing session changes immediately upon user transition from anonymous to authenticated state.
 
-## How to Prevent
+Java
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
 
--   Where possible, implement multi-factor authentication to prevent
-    automated credential stuffing, brute force, and stolen credential
-    reuse attacks.
+public class LoginService {
+    public void handleAuthentication(HttpServletRequest request, User user) {
+        // SECURE: Regenerate the session ID immediately upon identity change
+        request.changeSessionId();
+        
+        HttpSession session = request.getSession();
+        session.setAttribute("user", user);
+    }
+}
+Real-World Edge Cases & Advanced Vulnerabilities
+1. Session Fixation
+An attacker crafts a known anonymous session ID, tricks a victim into using it (e.g., via a phishing link), and waits for them to log in.
 
--   Do not ship or deploy with any default credentials, particularly for
-    admin users.
+The Flaw: If the application does not issue a new session token upon authentication, the attacker can hijack the fully authorized session using the pre-shared token.
 
--   Implement weak password checks, such as testing new or changed
-    passwords against the top 10,000 worst passwords list.
+Remediation: Explicitly regenerate or change the session identifier using standard context actions (such as request.changeSessionId()) immediately after credentials are verified.
 
--   Align password length, complexity, and rotation policies with
-    National Institute of Standards and Technology (NIST)
-    800-63b's guidelines in section 5.1.1 for Memorized Secrets or other
-    modern, evidence-based password policies.
+2. Password Reset Account Enumeration
+Using distinct messages for password recovery requests based on whether the username exists (e.g., "Email not found" vs. "Password reset link sent").
 
--   Ensure registration, credential recovery, and API pathways are
-    hardened against account enumeration attacks by using the same
-    messages for all outcomes.
+The Flaw: Allows attackers to programmatically probe and map valid system user databases.
 
--   Limit or increasingly delay failed login attempts, but be careful not to create a denial of service scenario. Log all failures
-    and alert administrators when credential stuffing, brute force, or
-    other attacks are detected.
+Remediation: Standardize the system's responses. Always display a generic, neutral result: "If this email exists in our records, a recovery link has been sent."
 
--   Use a server-side, secure, built-in session manager that generates a
-    new random session ID with high entropy after login. Session identifier
-    should not be in the URL, be securely stored, and invalidated after
-    logout, idle, and absolute timeouts.
+How to Prevent
+Enforce Multi-Factor Authentication (MFA): Implement MFA as a baseline requirement to neutralize stolen credentials and automated brute-force attempts.
 
-## Example Attack Scenarios
+Implement Rate Limiting: Apply sliding rate limits to registration, password recovery, and login endpoints.
 
-**Scenario #1:** Credential stuffing, the use of lists of known
-passwords, is a common attack. Suppose an application does not implement
-automated threat or credential stuffing protection. In that case, the
-application can be used as a password oracle to determine if the
-credentials are valid.
+Regenerate Session Identifiers: Always invalidate and regenerate session keys during any privilege boundary transitions.
 
-**Scenario #2:** Most authentication attacks occur due to the continued
-use of passwords as a sole factor. Once considered best practices,
-password rotation and complexity requirements encourage users to use
-and reuse weak passwords. Organizations are recommended to stop these
-practices per NIST 800-63 and use multi-factor authentication.
+Harden Against Account Enumeration: Keep validation responses neutral across all entry-point endpoints.
 
-**Scenario #3:** Application session timeouts aren't set correctly. A
-user uses a public computer to access an application. Instead of
-selecting "logout," the user simply closes the browser tab and walks
-away. An attacker uses the same browser an hour later, and the user is
-still authenticated.
+References
+OWASP Cheat Sheet: Session Management
 
-## References
+OWASP Cheat Sheet: Credential Stuffing Prevention
 
--   [OWASP Proactive Controls: Implement Digital Identity](https://owasp.org/www-project-proactive-controls/v3/en/c6-digital-identity)
+NIST SP 800-63b: Memorized Secrets (Section 5.1.1)
 
--   [OWASP Application Security Verification Standard: V2 authentication](https://owasp.org/www-project-application-security-verification-standard)
-
--   [OWASP Application Security Verification Standard: V3 Session Management](https://owasp.org/www-project-application-security-verification-standard)
-
--   [OWASP Testing Guide: Identity](https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/03-Identity_Management_Testing/README), [Authentication](https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/04-Authentication_Testing/README)
-
--   [OWASP Cheat Sheet: Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
-
--   [OWASP Cheat Sheet: Credential Stuffing](https://cheatsheetseries.owasp.org/cheatsheets/Credential_Stuffing_Prevention_Cheat_Sheet.html)
-
--   [OWASP Cheat Sheet: Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
-
--   [OWASP Cheat Sheet: Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
-
--   [OWASP Automated Threats Handbook](https://owasp.org/www-project-automated-threats-to-web-applications/)
-
--   [NIST 800-63b: 5.1.1 Memorized Secrets](https://pages.nist.gov/800-63-3/sp800-63b.html#memsecret)
-
-## List of Mapped CWEs
-
-[CWE-255 Credentials Management Errors](https://cwe.mitre.org/data/definitions/255.html)
-
-[CWE-259 Use of Hard-coded Password](https://cwe.mitre.org/data/definitions/259.html)
-
-[CWE-287 Improper Authentication](https://cwe.mitre.org/data/definitions/287.html)
-
-[CWE-288 Authentication Bypass Using an Alternate Path or Channel](https://cwe.mitre.org/data/definitions/288.html)
-
-[CWE-290 Authentication Bypass by Spoofing](https://cwe.mitre.org/data/definitions/290.html)
-
-[CWE-294 Authentication Bypass by Capture-replay](https://cwe.mitre.org/data/definitions/294.html)
-
-[CWE-295 Improper Certificate Validation](https://cwe.mitre.org/data/definitions/295.html)
-
-[CWE-297 Improper Validation of Certificate with Host Mismatch](https://cwe.mitre.org/data/definitions/297.html)
-
-[CWE-300 Channel Accessible by Non-Endpoint](https://cwe.mitre.org/data/definitions/300.html)
-
-[CWE-302 Authentication Bypass by Assumed-Immutable Data](https://cwe.mitre.org/data/definitions/302.html)
-
-[CWE-304 Missing Critical Step in Authentication](https://cwe.mitre.org/data/definitions/304.html)
-
-[CWE-306 Missing Authentication for Critical Function](https://cwe.mitre.org/data/definitions/306.html)
-
-[CWE-307 Improper Restriction of Excessive Authentication Attempts](https://cwe.mitre.org/data/definitions/307.html)
-
-[CWE-346 Origin Validation Error](https://cwe.mitre.org/data/definitions/346.html)
-
-[CWE-384 Session Fixation](https://cwe.mitre.org/data/definitions/384.html)
-
-[CWE-521 Weak Password Requirements](https://cwe.mitre.org/data/definitions/521.html)
-
-[CWE-613 Insufficient Session Expiration](https://cwe.mitre.org/data/definitions/613.html)
-
-[CWE-620 Unverified Password Change](https://cwe.mitre.org/data/definitions/620.html)
-
-[CWE-640 Weak Password Recovery Mechanism for Forgotten Password](https://cwe.mitre.org/data/definitions/640.html)
-
-[CWE-798 Use of Hard-coded Credentials](https://cwe.mitre.org/data/definitions/798.html)
-
-[CWE-940 Improper Verification of Source of a Communication Channel](https://cwe.mitre.org/data/definitions/940.html)
-
-[CWE-1216 Lockout Mechanism Errors](https://cwe.mitre.org/data/definitions/1216.html)
+OWASP ASVS: V2 Authentication and V3 Session Management Verification

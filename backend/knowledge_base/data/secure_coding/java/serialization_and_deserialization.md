@@ -1,193 +1,369 @@
-Guideline 8-1 / SERIAL-1: Avoid serialization for security-sensitive classes
-Security-sensitive classes that are not serializable will not have the problems detailed in this section. Making a class serializable effectively creates a public interface to all fields of that class. Serialization also effectively adds a hidden public constructor to a class, which needs to be considered when trying to restrict object construction.
+---
+id: JAVA-SERIAL-01-04
+title: Guarding Sensitive Serialization Data and Replicating Safety Checks
+category: Serialization Security
+severity_hint: Critical
+cwe: [CWE-502, CWE-200, CWE-358]
+java_versions: "All Versions (Always Applicable)"
+---
 
-Similarly, lambdas should be scrutinized before being made serializable. Functional interfaces should not be made serializable without due consideration for what could be exposed.
+# Guarding Sensitive Serialization Data and Replicating Safety Checks
 
-It is also important to avoid unintentionally making a security-sensitive class serializable, either by subclassing a serializable class or implementing a serializable interface.
+## Overview
+Making a class serializable bypasses normal access modifiers and hidden constructor rules, effectively exposing private fields to anyone who can intercept the serialized byte stream. When writing serializable classes, any security-related validation, range-checking, or access-permission routines executed during standard construction must be mirrored precisely inside customized `readObject` and `writeObject` methods.
 
+---
 
-Guideline 8-2 / SERIAL-2: Guard sensitive data during serialization
-Once an object has been serialized the Java language's access controls can no longer be enforced and attackers can access private fields in an object by analyzing its serialized byte stream. Therefore, do not serialize sensitive data in a serializable class.
+## Code Triad
 
-Approaches for handling sensitive fields in serializable classes are:
+### ❌ Insecure (Exposing Raw Fields and Bypassing Access Checks)
+A serializable class that stores cleartext API tokens in a default serializable field and executes security evaluations inside its constructor but fails to replicate them on deserialization.
+```java
+package com.app.serial;
 
-Declare sensitive fields transient
-Define the serialPersistentFields array field appropriately
-Implement writeObject and use ObjectOutputStream.putField selectively
-Implement writeReplace to replace the instance with a serial proxy
-Implement the Externalizable interface
+import java.io.Serializable;
 
-Guideline 8-3 / SERIAL-3: View deserialization the same as object construction
-Deserialization creates a new instance of a class without invoking any constructor on that class. Therefore, deserialization should be designed to behave like normal construction.
-
-Default deserialization and ObjectInputStream.defaultReadObject can assign arbitrary objects to non-transient fields and does not necessarily return. Use ObjectInputStream.readFields instead to insert copying before assignment to fields. Or, if possible, don't make sensitive classes serializable.
-
-Copy
-Copied to ClipboardError: Could not Copy
-public final class ByteString implements java.io.Serializable {
+public final class UserSession implements Serializable {
     private static final long serialVersionUID = 1L;
-    private byte[] data;
-    public ByteString(byte[] data) {
-        this.data = data.clone(); // Make copy before assignment.
+    
+    // VULNERABLE: Sensitive token is written in cleartext to the serialization stream
+    private String apiToken;
+    private int sessionLevel;
+
+    public UserSession(String apiToken, int sessionLevel) {
+        // VULNERABLE: This check is bypassed when deserializing a compromised object stream
+        if (sessionLevel < 1 || sessionLevel > 5) {
+            throw new IllegalArgumentException("Invalid privilege level");
+        }
+        this.apiToken = apiToken;
+        this.sessionLevel = sessionLevel;
     }
-    private void readObject(
-        java.io.ObjectInputStream in
-    ) throws java.io.IOException, ClassNotFoundException {
-        java.io.ObjectInputStream.GetField fields =
-            in.readFields();
-        this.data = ((byte[])fields.get("data")).clone();
+
+    public String getApiToken() {
+        return apiToken;
     }
-    // ...
 }
-Perform the same input validation checks in a readObject method implementation as those performed in a constructor. Likewise, assign default values that are consistent with those assigned in a constructor to all fields, including transient fields, which are not explicitly set during deserialization.
+⚠️ Flawed Attempt (Replicating Logic without Defensive Copying)
+Enforcing validation inside readObject but directly assigning deserialized fields without performing defensive cloning of mutable fields first.
 
-In addition create copies of deserialized mutable objects before assigning them to internal fields in a readObject implementation. This defends against hostile code deserializing byte streams that are specially crafted to give the attacker references to mutable objects inside the deserialized container object.
+Java
+package com.app.serial;
 
-Copy
-Copied to ClipboardError: Could not Copy
-public final class Nonnegative implements java.io.Serializable {
+import java.io.*;
+
+public final class UserSessionFlawed implements Serializable {
     private static final long serialVersionUID = 1L;
-    private int value;
-    public Nonnegative(int value) {
-        // Make check before assignment.
-        this.data = nonnegative(value);
-    }
-    private static int nonnegative(int value) {
-        if (value < 0) {
-            throw new IllegalArgumentException(value +
-                                               " is negative");
+    
+    private transient String apiToken; // Marked transient, but state-saving logic is flawed
+    private int sessionLevel;
+
+    public UserSessionFlawed(String apiToken, int sessionLevel) {
+        if (sessionLevel < 1 || sessionLevel > 5) {
+            throw new IllegalArgumentException("Invalid privilege level");
         }
-        return value;
-    }
-    private void readObject(
-        java.io.ObjectInputStream in
-    ) throws java.io.IOException, ClassNotFoundException {
-        java.io.ObjectInputStream.GetField fields =
-            in.readFields();
-        this.value = nonnegative(field.get(value, 0));
-    }
-    // ...
-}
-Attackers can also craft hostile streams in an attempt to exploit partially initialized (deserialized) objects. Ensure a serializable class remains totally unusable until deserialization completes successfully. For example, use an initialized flag. Declare the flag as a private transient field and only set it in a readObject or readObjectNoData method (and in constructors) just prior to returning successfully. All public and protected methods in the class must consult the initialized flag before proceeding with their normal logic. As discussed earlier, use of an initialized flag can be cumbersome. Simply ensuring that all fields contain a safe value (such as null) until deserialization successfully completes can represent a reasonable alternative.
-
-Security-sensitive serializable classes should ensure that object field types are final classes, or do special validation to ensure exact types when deserializing. Otherwise, an attacker may populate the fields with unsafe subclasses which behave in unexpected ways.
-
-
-Guideline 8-4 / SERIAL-4: Duplicate the security-related checks performed in a class during serialization and deserialization
-Prevent security-related checks enforced in a class from being bypassed via serialization or deserialization. Specifically, if a serializable class performs a security-related check in its constructors, then perform that same check in a readObject or readObjectNoData method implementation. Otherwise, an instance of the class can be created via deserialization without any check.
-
-Copy
-Copied to ClipboardError: Could not Copy
-public final class SensitiveClass implements java.io.Serializable {
-    public SensitiveClass() {
-        // security check needed to instantiate SensitiveClass
-        securityCheck();
-
-        // regular logic follows
+        this.apiToken = apiToken;
+        this.sessionLevel = sessionLevel;
     }
 
-    // implement readObject to enforce checks
-    //   during deserialization
-    private void readObject(java.io.ObjectInputStream in) {
-        // duplicate check from constructor
-        securityCheck();
-
-        // regular logic follows
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        // FLAWED: Using defaultReadObject can bind corrupted references directly to fields
+        in.defaultReadObject();
+        
+        // FLAWED: Validates bounds after the unchecked initialization occurred
+        if (sessionLevel < 1 || sessionLevel > 5) {
+            throw new InvalidObjectException("Privilege range error");
+        }
     }
 }
-If a serializable class enables internal state to be modified by a caller (via a public method, for example) and the modification is guarded with a security-related check, then perform that same check in a readObject method implementation. Otherwise, deserialization may result in the creation of another instance of an object with modified state without passing the check.
+✅ Secure (Transient Fields, readFields extraction, and Re-validation)
+Keep highly sensitive state fields transient (or use a Serialization Proxy). When using standard fields, use readFields() to load inputs safely, perform defensive cloning, and re-run all constructor security and boundary checks before binding them.
 
-Copy
-Copied to ClipboardError: Could not Copy
-public final class SecureName implements java.io.Serializable {
+Java
+package com.app.serial;
 
-    // private internal state
-    private String name;
+import java.io.*;
 
-    private static final String DEFAULT = "DEFAULT";
+public final class UserSessionSecure implements Serializable {
+    private static final long serialVersionUID = 2L;
 
-    public SecureName() {
-        // initialize name to default value
-        name = DEFAULT;
+    // SECURE: Keep sensitive fields out of persistent formats
+    private transient String apiToken; 
+    private int sessionLevel;
+
+    public UserSessionSecure(String apiToken, int sessionLevel) {
+        validatePrivileges(sessionLevel);
+        this.apiToken = apiToken;
+        this.sessionLevel = sessionLevel;
     }
 
-    // allow callers to modify private internal state
-    public void setName(String name) {
-        if (name!=null ? name.equals(this.name)
-                       : (this.name == null)) {
-            // no change - do nothing
-            return;
-        } else {
-            // security check needed to modify name
-            securityCheck();
-
-            inputValidation(name);
-
-            this.name = name;
+    private static void validatePrivileges(int level) {
+        if (level < 1 || level > 5) {
+            throw new IllegalArgumentException("Invalid privilege level: " + level);
         }
     }
 
-    // implement readObject to enforce checks
-    //   during deserialization
-    private void readObject(java.io.ObjectInputStream in) {
-        java.io.ObjectInputStream.GetField fields =
-            in.readFields();
-        String name = (String) fields.get("name", DEFAULT);
+    // SECURE: Enforce authorization controls prior to writing instance to stream
+    private void writeObject(ObjectOutputStream out) throws IOException {
+        out.defaultWriteObject();
+        // Alternatively, write an encrypted variant of apiToken here if storage is required
+    }
 
-        // if the deserialized name does not match the default
-        //   value normally created at construction time,
-        //   duplicate checks
+    // SECURE: treat deserialization identically to object construction
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        ObjectInputStream.GetField fields = in.readFields();
+        int level = fields.get("sessionLevel", 1);
 
+        // SECURE: Re-evaluate state validation rules prior to field assignment
+        validatePrivileges(level);
+        this.sessionLevel = level;
+        
+        // SECURE: Re-initialize transient values to safe, default values
+        this.apiToken = "REVOKED_ON_DESERIALIZE";
+    }
+}
 
-        if (!DEFAULT.equals(name)) {
-            securityCheck();
-            inputValidation(name);
+---
+
+### File 24: Serialization Filters and Object Input Controls (`SERIAL-6`)
+
+```markdown
+---
+id: JAVA-SERIAL-06
+title: Serialization Filtering of Untrusted Data
+category: Insecure Deserialization / Object Filtering
+severity_hint: Critical
+cwe: [CWE-502]
+java_versions: "Java 9 and higher (Enhanced in Java 17)"
+---
+
+# Serialization Filtering of Untrusted Data
+
+## Overview
+Unchecked deserialization of untrusted streams is one of the most destructive attack vectors in Java application architectures, potentially leading to immediate Remote Code Execution (RCE). To mitigate this vulnerability, you must deploy strict `ObjectInputFilter` configurations to block unauthorized gadget classes and enforce explicit class allow-lists during stream processing.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Unchecked Object Deserialization)
+Instantiating a standard `ObjectInputStream` and deserializing raw user-supplied binary files with no filter parameters configured.
+```java
+package com.app.serial;
+
+import java.io.*;
+
+public class SerializationHandler {
+    // VULNERABLE: Any class on the application classpath can be instantiated before type-casting,
+    // leading to remote code execution (RCE) via common library exploits (e.g., commons-collections).
+    public Object deserializeStreamUnsafe(InputStream rawStream) throws Exception {
+        try (ObjectInputStream ois = new ObjectInputStream(rawStream)) {
+            return ois.readObject(); 
         }
-        this.name = name;
-    }
-
-}
-If a serializable class enables internal state to be retrieved by a caller and the retrieval is guarded with a security-related check to prevent disclosure of sensitive data, then perform that same check in a writeObject method implementation. Otherwise, the check may be bypassed and internal state accessed simply by reading the serialized byte stream.
-
-Copy
-Copied to ClipboardError: Could not Copy
-public final class SecureValue implements java.io.Serializable {
-    // sensitive internal state
-    private String value;
-
-    // public method to allow callers to retrieve internal state
-
-    public String getValue() {
-        // security check needed to get value
-        securityCheck();
-
-        return value;
-    }
-
-
-    // implement writeObject to enforce checks 
-    //  during serialization
-    private void writeObject(java.io.ObjectOutputStream out) {
-        // duplicate check from getValue()
-        securityCheck();
-        out.writeObject(value);
     }
 }
+⚠️ Flawed Attempt (Deny-list / Block-list Deserialization Filters)
+Configuring deserialization filters to block common known vulnerable classes, which fails when newly discovered gadgets or unblocked classpath dependencies are targeted.
 
-Guideline 8-5 / SERIAL-5: Understand the security permissions given to serialization and deserialization
-This guideline has been moved to 9-20.
+Java
+package com.app.serial;
 
+import java.io.*;
 
-Guideline 8-6 / SERIAL-6: Filter untrusted serial data
-Serialization Filtering is a feature introduced in JDK 9 to improve both security and robustness when using Object Serialization. JDK 17 enhanced this feature by implementing context-specific filters [25].
+public class SerializationHandler {
+    public Object deserializeStreamFlawed(InputStream rawStream) throws Exception {
+        try (ObjectInputStream ois = new ObjectInputStream(rawStream)) {
+            // FLAWED: Using a reject/deny list is highly fragile. 
+            // Attackers will easily locate unlisted class gadget chains on the classpath.
+            ObjectInputFilter filter = ObjectInputFilter.Config.createFilter(
+                "!org.apache.commons.collections4.functors.*;"
+            );
+            ois.setObjectInputFilter(filter);
+            return ois.readObject();
+        }
+    }
+}
+✅ Secure (Strict Allow-list Configuration via ObjectInputFilter)
+Implement a strict, targeted allow-list filter that accepts only a tightly defined set of safe, local DTO classes, and rejects everything else.
 
+Java
+package com.app.serial;
 
-Security guidelines require that application developers validate inputs from external sources. To protect the JVM against deserialization vulnerabilities, developers should create an inventory of the objects that can be serialized or deserialized by each component or library. Serialization filtering can be leveraged as a security mechanism to validate classes before they are deserialized. For each context and use case, developers should construct and apply an appropriate filter.
+import java.io.*;
+import java.util.Set;
 
-Serialization filters can be installed programmatically for specific input streams. Filters can also be configured that apply to most uses of object deserialization without modifying the application. These system-wide filters are configured via system properties or configured using the override mechanism of the security properties. As part of JEP 415, JDK 17 also introduced the ability to "configure context-specific and dynamically-selected deserialization filters via a JVM-wide filter factory that is invoked to select a filter for each individual deserialization operation."[25]
+public class SerializationHandler {
+    
+    // SECURE: Enforce a strict allow-list that is limited strictly to expected, benign data types
+    private static final Set<String> ALLOWED_CLASSES = Set.of(
+        "com.app.serial.SafePayloadDTO",
+        "java.lang.String",
+        "java.lang.Integer"
+    );
 
-Creating an allow-list of safe classes and rejecting everything else is the most secure approach, and gives protection against unexpected objects in a stream. If an allow-list is not feasible, then a reject-list should include classes, packages, and modules that can be abused during deserialization. When taking this approach, it is important to consider that subclasses of the rejected class can still be deserialized. Allow-lists are preferred over reject-lists, as it is challenging to enumerate every possible class that could be leveraged in a deserialization attack in order to block them.
+    public Object deserializeStreamSecure(InputStream rawStream) throws Exception {
+        try (ObjectInputStream ois = new ObjectInputStream(rawStream)) {
+            
+            // SECURE: Allow only explicitly matched classes, specify limits on tree depth/size, and reject everything else
+            ObjectInputFilter filter = filterInfo -> {
+                Class<?> serialClass = filterInfo.serialClass();
+                if (serialClass == null) {
+                    return ObjectInputFilter.Status.UNDECIDED;
+                }
+                
+                // Enforce strict stream parameter metrics (Max depth, references, array sizes)
+                if (filterInfo.depth() > 10 || filterInfo.references() > 1000) {
+                    return ObjectInputFilter.Status.REJECTED;
+                }
 
-RMI supports the setting of serialization filters to protect remote invocations of exported objects. The RMI Registry and RMI distributed garbage collector use the filtering mechanisms defensively.
+                if (ALLOWED_CLASSES.contains(serialClass.getName())) {
+                    return ObjectInputFilter.Status.ALLOWED;
+                }
+                
+                return ObjectInputFilter.Status.REJECTED;
+            };
 
-Support for the configurable filters has been included in the CPU releases for JDK 8u121, JDK 7u131, and JDK 6u141. For more information and details please refer to [17], [20], and [25].
+            ois.setObjectInputFilter(filter);
+            return ois.readObject();
+        }
+    }
+}
+
+---
+
+### File 25: Safe Serialization Proxies (`SERIAL-2`, `3`)
+
+```markdown
+---
+id: JAVA-SERIAL-02-03
+title: Safe Serialization Proxies
+category: Serialization Security
+severity_hint: High
+cwe: [CWE-502, CWE-372]
+java_versions: "All Versions (Always Applicable)"
+---
+
+# Safe Serialization Proxies
+
+## Overview
+A Serialization Proxy pattern replaces the actual instance of a class with a helper container during the serialization process. This completely bypasses default deserialization, guaranteeing that instances can only ever be constructed through their public APIs and validated constructor paths, avoiding partial-initialization exploits or corrupted internal references.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Exposing Complex Internal Graphs)
+Implementing direct, raw `Serializable` on complex, mutable classes, allowing attackers to reconstruct invalid object relationships.
+```java
+package com.app.serial;
+
+import java.io.Serializable;
+
+public final class Coordinates implements Serializable {
+    private static final long serialVersionUID = 1L;
+    
+    private final int x;
+    private final int y;
+
+    // VULNERABLE: Attacker stream can inject coordinates outside of normal constraints
+    public Coordinates(int x, int y) {
+        if (x < 0 || y < 0) {
+            throw new IllegalArgumentException("Negative coordinates not permitted.");
+        }
+        this.x = x;
+        this.y = y;
+    }
+
+    public int getX() { return x; }
+    public int getY() { return y; }
+}
+⚠️ Flawed Attempt (Constructing Invalid Internal States via Custom Deserializers)
+Implementing complex logic checks inside readObject to enforce constraints. This remains highly complex, error-prone, and susceptible to reflection and memory reference capturing during deserialization.
+
+Java
+package com.app.serial;
+
+import java.io.*;
+
+public final class CoordinatesFlawed implements Serializable {
+    private static final long serialVersionUID = 1L;
+    private int x;
+    private int y;
+
+    public CoordinatesFlawed(int x, int y) {
+        validate(x, y);
+        this.x = x;
+        this.y = y;
+    }
+
+    private void validate(int x, int y) {
+        if (x < 0 || y < 0) {
+            throw new IllegalArgumentException("Negative coordinates not permitted.");
+        }
+    }
+
+    // FLAWED: Direct assignment inside readObject bypasses constructor structure and safety wrappers.
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        validate(this.x, this.y);
+    }
+}
+✅ Secure (The Serialization Proxy Pattern)
+Use a private, static inner class (SerializationProxy) to handle serialization operations. Implement writeReplace() to output the proxy, and configure readObject() on the base class to throw an exception if deserialized directly.
+
+Java
+package com.app.serial;
+
+import java.io.*;
+
+public final class CoordinatesSecure implements Serializable {
+    private static final long serialVersionUID = 3L;
+
+    private final int x;
+    private final int y;
+
+    public CoordinatesSecure(int x, int y) {
+        if (x < 0 || y < 0) {
+            throw new IllegalArgumentException("Negative coordinates not permitted.");
+        }
+        this.x = x;
+        this.y = y;
+    }
+
+    // SECURE: This inner class is the ONLY entity saved in serialized storage
+    private static class SerializationProxy implements Serializable {
+        private static final long serialVersionUID = 3L;
+        private final int x;
+        private final int y;
+
+        SerializationProxy(CoordinatesSecure original) {
+            this.x = original.x;
+            this.y = original.y;
+        }
+
+        // SECURE: Instantiates the target outer class via its official public constructor on deserialization
+        private Object readResolve() {
+            return new CoordinatesSecure(x, y);
+        }
+    }
+
+    // SECURE: Automatically serialize the proxy container instead of this outer class instance
+    private Object writeReplace() {
+        return new SerializationProxy(this);
+    }
+
+    // SECURE: Block any attempt to bypass the serialization proxy via compromised data streams
+    private void readObject(ObjectInputStream stream) throws InvalidObjectException {
+        throw new InvalidObjectException("Proxy transaction required for serialization execution.");
+    }
+
+    public int getX() { return x; }
+    public int getY() { return y; }
+}
+
+---
+
+<ElicitationsGroup message="These serialization rules seal critical holes in object construction pipelines. What would you like to explore next?">
+{/* Reason: Offers highly relevant follow-up prompts tailored specifically to JVM safety patterns. */}
+  <Elicitation label="Access Control and Defensive Class Designing" query="How should I structure access permissions and package levels in Java to enforce class boundaries safely?"/>
+  <Elicitation label="Preventing Thread Race Conditions in Mutable Objects" query="How do I design thread-safe classes that are protected against concurrent state corruption?"/>
+</ElicitationsGroup>

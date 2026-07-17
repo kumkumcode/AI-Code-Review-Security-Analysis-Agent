@@ -1,44 +1,348 @@
-Guideline 0-0 / FUNDAMENTALS-0: Prefer to have obviously no flaws rather than no obvious flaws [8]
-Creating secure code is not necessarily easy. Despite the unusually robust nature of Java, flaws can slip past with surprising ease. Design and write code that does not require clever logic to see that it is safe. Specifically, follow the guidelines in this document unless there is a very strong reason not to.
+---
+id: JAVA-FUNDAMENTALS-01
+title: Secure API Design, Encapsulation, and Duplication Control
+category: Defensive Design / Broken Encapsulation
+severity_hint: Medium
+cwe: [CWE-493, CWE-656, CWE-1044]
+java_versions: "All Versions (Always Applicable)"
+---
 
+# Secure API Design, Encapsulation, and Duplication Control
 
-Guideline 0-1 / FUNDAMENTALS-1: Design APIs to avoid security concerns
-It is better to design APIs with security in mind. Trying to retrofit security into an existing API is more difficult and error prone. For example, making a class final prevents a subclass from overriding methods in a way that could compromise security (Guideline 4-5).
+## Overview
+Secure Java applications should be built so that it is "obviously simple with no flaws" rather than merely "having no obvious flaws." Retrospective security fixes are fragile. Avoid duplication, make security constraints explicit in API contracts, and enforce strict class encapsulation (e.g., declaring classes `final` to prevent subclassing overrides).
 
+---
 
-Guideline 0-2 / FUNDAMENTALS-2: Avoid duplication
-Duplication of code and data causes many problems. Both code and data tend not to be treated consistently when duplicated, e.g., changes may not be applied to all copies.
+## Code Triad
 
+### ❌ Insecure (Exposed Internals & Extensible API)
+An over-exposed, non-final class that leaks mutable internal fields, letting subclasses override and manipulate business logic state.
+```java
+package com.app.api;
 
-Guideline 0-3 / FUNDAMENTALS-3: Restrict privileges
-Despite best efforts, not all coding flaws will be eliminated even in well reviewed code. However, if the code is operating with reduced privileges, then exploitation of any flaws is likely to be thwarted. The most extreme form of this is known as the principle of least privilege, where code is run with the least privileges required to function. Low-level mechanisms available from operating systems or containers can be used to restrict privileges. Separate processes (JVMs) should be used to isolate untrusted code from trusted code with sensitive information. Previous use of the security manager should be replaced with these stronger approaches.
+// VULNERABLE: Class can be subclassed to bypass checks; public mutable state allows direct manipulation
+public class AccountSession {
+    public double balance; 
+    public String role;
 
-Applications can also be decomposed into separate services or processes to help restrict privileges. These services or processes can be granted different capabilities and OS-level permissions or even run on separate machines. Components of the application that require special permissions can be run separately with elevated privileges. Components that interact with untrusted code, users, or data can also be restricted or isolated, running with lower privileges. Separating parts of the application that require elevated privileges or that are more exposed to security threats can help to reduce the impact of security issues.
+    public AccountSession(double balance, String role) {
+        this.balance = balance;
+        this.role = role;
+    }
 
+    public void processTransaction(double amount) {
+        this.balance -= amount;
+    }
+}
+⚠️ Flawed Attempt (Accessor Leaks)
+Making the class final and fields private, but providing standard getters and setters that leak references to mutable internal structures (like dates or arrays).
 
-Guideline 0-4 / FUNDAMENTALS-4: Establish trust boundaries
-In order to ensure that a system is protected, it is necessary to establish trust boundaries. Data that crosses these boundaries should be sanitized and validated before use. Trust boundaries are also necessary to allow security audits to be performed efficiently. Code that ensures integrity of trust boundaries must itself be loaded in such a way that its own integrity is assured.
+Java
+package com.app.api;
 
-For instance, a web browser is outside of the system for a web server. Equally, a web server is outside of the system for a web browser. Therefore, web browser and server software should not rely upon the behavior of the other for security.
+import java.util.Date;
 
-When auditing trust boundaries, there are some questions that should be kept in mind. Are the code and data used sufficiently trusted? Could a library be replaced with a malicious implementation? Is untrusted configuration data being used? Is code calling with lower privileges adequately protected against?
+public final class AccountSessionFlawed {
+    private final Date creationDate; // Mutable object
 
+    public AccountSessionFlawed(Date creationDate) {
+        this.creationDate = creationDate;
+    }
 
-Guideline 0-5 / FUNDAMENTALS-5: Minimise the number of security checks
-Java is primarily an object-capability language. Perform security checks at a few defined points and return an object (a capability) that client code retains so that no further checks are required. Note, however, that care must be taken by both the code performing the check and the caller to prevent the capability from being leaked to other code.
+    // FLAWED: Exposes a direct reference to the mutable Date object.
+    // Callers can modify the date externally, altering the session state.
+    public Date getCreationDate() {
+        return this.creationDate; 
+    }
+}
+✅ Secure (Defensive Copying, Final API, & Encapsulated Fields)
+Enforce absolute encapsulation: make classes final, expose no public mutable fields, and use defensive copying or immutable records for internal types.
 
+Java
+package com.app.api;
 
-Guideline 0-6 / FUNDAMENTALS-6: Encapsulate
-Allocate behaviors and provide succinct interfaces. Fields of objects should be private and accessors avoided. The interface of a method, class, package, and module should form a coherent set of behaviors, and no more.
+import java.util.Date;
+import java.util.Objects;
 
+/**
+ * SECURE: API is designed to be immutable, final, and thoroughly encapsulated.
+ * All state modifications are checked at construction time.
+ */
+public final class AccountSessionSecure {
+    private final double balance;
+    private final String role;
+    private final Date creationDate;
 
-Guideline 0-7 / FUNDAMENTALS-7: Document security-related information
-API documentation should cover security-related information such as required permissions, security-related exceptions, caller sensitivity (see Guidelines 9-8 through 9-11 for additional on this topic), and any preconditions or postconditions that are relevant to security. Furthermore, APIs should clearly document which checked exceptions are thrown, and, in the event an API chooses to throw unchecked exceptions to indicate domain-specific error conditions, should also document these unchecked exceptions, so that callers may handle them if desired. Documenting this information in comments for a tool such as Javadoc can also help to ensure that it is kept up to date.
+    public AccountSessionSecure(double balance, String role, Date creationDate) {
+        if (balance < 0) {
+            throw new IllegalArgumentException("Balance cannot be negative.");
+        }
+        this.balance = balance;
+        this.role = Objects.requireNonNull(role, "Role cannot be null");
+        // SECURE: Store a defensive copy of the mutable Date object
+        this.creationDate = new Date(creationDate.getTime());
+    }
 
+    public double getBalance() {
+        return balance;
+    }
 
-Guideline 0-8 / FUNDAMENTALS-8: Secure third-party code
-Libraries, frameworks, and other third-party software can introduce security vulnerabilities and weaknesses, especially if they are not kept up to date. Security updates released by the author may take time to reach bundled applications, dependent libraries, or OS package management updates. Therefore, it is important to keep track of security updates for any third-party code being used, and make sure that the updates get applied in a timely manner. This includes both frameworks and libraries used by an application, as well as any dependencies of those libraries/frameworks. Dependency checking tools can help to reduce the effort required to perform these tasks, and can usually be integrated into the development and release process.
+    public String getRole() {
+        return role;
+    }
 
-It is also important to understand the security model and best practices for third-party software. Identify secure configuration options, any security-related tasks performed by the code (e.g., cryptographic functions or serialization), and any security considerations for APIs being used. Understanding past security issues and attack patterns against the code can also help to use it in a more secure manner. For example, if past security issues have applied to certain functionality or configurations, avoiding those may help to minimize exposure.
+    // SECURE: Return a defensive copy to prevent external modification
+    public Date getCreationDate() {
+        return new Date(creationDate.getTime());
+    }
+}
 
-Security considerations of third-party code should also be periodically revisited. In addition to applying security updates whenever they are released, more secure APIs or configuration options could be made available over time.
+---
+
+### File 10: Process Isolation & Privilege Restricton (`FUNDAMENTALS-3`)
+
+```markdown
+---
+id: JAVA-FUNDAMENTALS-03
+title: Process Isolation and Privilege Restriction
+category: Architectural Isolation / Least Privilege
+severity_hint: High
+cwe: [CWE-250, CWE-288]
+java_versions: "All Versions (Strict Modern Standard for Java 24+)"
+---
+
+# Process Isolation and Privilege Restriction
+
+## Overview
+With the removal of the `SecurityManager` in modern Java (JEP 486), privilege restriction is no longer handled reliably inside a single JVM. Security must instead be enforced at the boundary of the JVM using operating system sandbox permissions, containers, or process isolation.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Monolithic Untrusted Code Execution)
+Executing third-party plugins or parsing untrusted data within the primary, highly privileged application JVM.
+```java
+package com.app.sandbox;
+
+public class PluginRunner {
+    // VULNERABLE: Executing arbitrary code in-process has full host system access in modern Java
+    public void executePlugin(Runnable untrustedPlugin) {
+        untrustedPlugin.run(); 
+    }
+}
+⚠️ Flawed Attempt (Inert SecurityManager Configuration)
+Attempting to dynamically register a local security context or check legacy system permissions to limit arbitrary plugin capabilities.
+
+Java
+package com.app.sandbox;
+
+public class PluginRunner {
+    public void executePluginFlawed(Runnable untrustedPlugin) {
+        // FLAWED: Will always evaluate as true or null in Java 24+, 
+        // leading to silent failure of privilege restriction.
+        SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            sm.checkPermission(new RuntimePermission("runPlugin"));
+        }
+        untrustedPlugin.run();
+    }
+}
+✅ Secure (OS-Level Subprocess & Container Sandboxing)
+Decompose the application. Spawn untrusted operations in a completely isolated JVM instance using a low-privilege OS user or container.
+
+Java
+package com.app.sandbox;
+
+import java.io.IOException;
+import java.util.List;
+
+public class PluginRunner {
+    
+    // SECURE: Execute untrusted code inside an isolated process container or separate JVM
+    public void executePluginSecure(String pluginJarPath) throws IOException, InterruptedException {
+        // Use ProcessBuilder to spin up a child JVM with reduced host permissions
+        ProcessBuilder pb = new ProcessBuilder(
+            "docker", "run", "--rm", 
+            "-v", pluginJarPath + ":/app/plugin.jar:ro", 
+            "amazoncorretto:21", "java", "-jar", "/app/plugin.jar"
+        );
+        
+        Process process = pb.start();
+        int exitCode = process.waitFor();
+        
+        if (exitCode != 0) {
+            throw new SecurityException("Plugin execution failed or exceeded system resource limits.");
+        }
+    }
+}
+
+---
+
+### File 11: Trust Boundaries and Validation (`FUNDAMENTALS-4`)
+
+```markdown
+---
+id: JAVA-FUNDAMENTALS-04
+title: Trust Boundaries and Input Sanitization
+category: Security Misconfiguration / Untrusted Inputs
+severity_hint: Critical
+cwe: [CWE-20, CWE-74]
+java_versions: "All Versions (Always Applicable)"
+---
+
+# Trust Boundaries and Input Sanitization
+
+## Overview
+A system must establish explicit trust boundaries. Any data crossing outside the boundary of your program (such as client inputs, external database values, file systems, or properties) must be assumed malicious, thoroughly validated, and normalized before parsing or executing.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (No Input Boundary Validation)
+Accepting raw data from an external API payload and utilizing it directly in system operations.
+```java
+package com.app.boundary;
+
+public class PathHandler {
+    // VULNERABLE: Direct path traversal using unvalidated user input
+    public void processFileUnsafe(String userPath) {
+        java.io.File file = new java.io.File("/data/uploads/" + userPath);
+        // Perform action on file...
+    }
+}
+⚠️ Flawed Attempt (Sanitizing via Replacing Disallowed Strings)
+Employing clean-up code that attempts to replace malicious character targets (like ../), which can be bypassed via alternative encodings or double-stripping attacks.
+
+Java
+package com.app.boundary;
+
+public class PathHandler {
+    public void processFileFlawed(String userPath) {
+        // FLAWED: Nested traversal attacks can bypass simple replacement routines (e.g. "..././")
+        String sanitized = userPath.replace("../", "");
+        java.io.File file = new java.io.File("/data/uploads/" + sanitized);
+        // Action...
+    }
+}
+✅ Secure (Strict Path Normalization and Whitelisting)
+Perform strict type validation, resolve relative paths, and confirm that the canonical representation is strictly trapped inside the designated directory hierarchy.
+
+Java
+package com.app.boundary;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+public class PathHandler {
+    private static final Path BASE_DIR = Paths.get("/data/uploads").toAbsolutePath().normalize();
+
+    public void processFileSecure(String userPath) throws IOException {
+        // SECURE: Enforce strict format matching
+        if (!userPath.matches("^[a-zA-Z0-9_-]+\\.[a-z]{3}$")) {
+            throw new IllegalArgumentException("Invalid file format.");
+        }
+
+        Path targetPath = BASE_DIR.resolve(userPath).toAbsolutePath().normalize();
+
+        // SECURE: Explicitly assert trust boundaries using parent/child checks
+        if (!targetPath.startsWith(BASE_DIR)) {
+            throw new SecurityException("Directory traversal attack detected.");
+        }
+
+        File file = targetPath.toFile();
+        // Securely proceed with file action...
+    }
+}
+
+---
+
+### File 12: Capability-Based Security & Third-Party Auditing (`FUNDAMENTALS-5`, `8`)
+
+```markdown
+---
+id: JAVA-FUNDAMENTALS-05-08
+title: Capability-Based Securities & Third-Party Dependencies
+category: Vulnerable Dependencies / Capability Leaks
+severity_hint: High
+cwe: [CWE-1104, CWE-1395]
+java_versions: "All Versions (Always Applicable)"
+---
+
+# Capability-Based Securities & Third-Party Dependencies
+
+## Overview
+Perform authorization checks once and hand off a "capability object" (e.g., an opened channel, token, or session file) to reduce security overhead. Additionally, track, check, and automatically block outdated third-party library dependencies containing CVEs using software composition analysis (SCA) tools.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Spreading Authorization Checks & Neglecting Dependencies)
+Repeatedly running heavyweight permission validations across the entire application and ignoring external dependency CVE tracking.
+```java
+package com.app.auth;
+
+public class DataStore {
+    // VULNERABLE: Requires querying the active state/role repeatedly. 
+    // If the database context changes mid-transaction, access states can desynchronize.
+    public void readSensitiveRecord(String sessionToken, String recordId) {
+        if (!SessionManager.isAdmin(sessionToken)) {
+            throw new SecurityException("Unauthorized access.");
+        }
+        // Proceed with reading
+    }
+}
+⚠️ Flawed Attempt (Passing Raw System Capabilities Unprotected)
+Issuing highly powerful capability tokens or raw open files directly to client code without checking who can steal or misuse them.
+
+Java
+package com.app.auth;
+
+import java.io.FileInputStream;
+
+public class SecurityTokenIssuer {
+    // FLAWED: Handing a raw, live system stream handle to untrusted components.
+    // The consumer could leak this stream or consume resources indefinitely.
+    public FileInputStream getStreamCap(String token) throws Exception {
+        if (!"VALID".equals(token)) throw new SecurityException();
+        return new FileInputStream("/opt/data/app.log");
+    }
+}
+✅ Secure (Encapsulated Capabilities & Verified Dependency Chains)
+Pass carefully designed capability interfaces that limit client actions and enforce strict dependency checking during build pipelines.
+
+Java
+package com.app.auth;
+
+import java.io.InputStream;
+import java.io.IOException;
+
+public class DataStoreSecure {
+    
+    // SECURE: Encapsulate capability access. The client gets a limited wrapper 
+    // object and cannot access the internal storage, system paths, or raw resources.
+    public interface RecordCapability {
+        byte[] readData() throws IOException;
+    }
+
+    public RecordCapability getRecordReader(String sessionToken, String recordId) {
+        // 1. Perform authorization check strictly once at instantiation
+        if (!SessionManager.isAdmin(sessionToken)) {
+            throw new SecurityException("Access Denied.");
+        }
+
+        // 2. Return a restricted capability context
+        return new RecordCapability() {
+            @Override
+            public byte[] readData() throws IOException {
+                // Return encapsulated reading logic of recordId
+                return ("RecordContent_" + recordId).getBytes();
+            }
+        };
+    }
+}

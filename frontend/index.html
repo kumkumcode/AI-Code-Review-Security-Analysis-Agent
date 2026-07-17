@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warden — Secure Code Review</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="main-app-wrapper">
+
+        <header class="app-header">
+            <div class="header-container">
+                <div class="brand">
+                    <span class="brand-mark" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2L4 5.5V11c0 5.2 3.4 9.7 8 11 4.6-1.3 8-5.8 8-11V5.5L12 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.7 12.1l2.3 2.3 4.3-4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                </div>
+            </div>
+        </header>
+
+        <section class="hero-strip">
+            <div class="hero-inner">
+                <h1>Submit code. Get a security read on it.</h1>
+                <p>Paste or upload Python and Java source — Warden checks it against OWASP secure coding standards before anything ships.</p>
+            </div>
+        </section>
+
+        <main class="dashboard-grid">
+
+            <!-- Submission pane -->
+            <section class="workspace-pane">
+                <div class="pane-header">
+                    <h2>Submit code</h2>
+                    <div class="pill-tabs" id="pillTabs">
+                        <span class="pill-highlight" id="pillHighlight"></span>
+                        <button type="button" class="tab-btn active" data-tab="pasteTab">Paste</button>
+                        <button type="button" class="tab-btn" data-tab="uploadTab">Upload</button>
+                    </div>
+                </div>
+
+                <div class="pane-body">
+                    <div class="tab-panel active" id="pasteTab">
+                        <div class="editor-frame">
+                            <div class="editor-topbar">
+                                <span class="editor-dot red"></span>
+                                <span class="editor-dot amber"></span>
+                                <span class="editor-dot green"></span>
+                                <span class="editor-filename">submission.py</span>
+                            </div>
+                            <textarea id="codePasteArea" class="code-editor" placeholder="def handle_login(request):&#10;    # paste Python or Java source here&#10;    ..." spellcheck="false"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="tab-panel" id="uploadTab">
+                        <div class="upload-dropzone" id="dropZone" tabindex="0" role="button" aria-label="Select a file to upload">
+                            <span class="upload-icon">
+                                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V15"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            </span>
+                            <h3>Drop a source file, or click to browse</h3>
+                            <p>.py and .java files only</p>
+                        </div>
+                        <input type="file" id="fileInput" accept=".py,.java" hidden>
+
+                        <div class="staged-file" id="fileDisplay" style="display: none;">
+                            <span class="staged-file-icon" aria-hidden="true">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                            </span>
+                            <span id="fileInfoText" class="file-meta"></span>
+                            <button type="button" class="btn-clear" id="removeFileBtn">Change file</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pane-footer">
+                    <div id="alertBanner" class="system-alert" style="display: none;"></div>
+                    <button id="submitBtn" type="button" class="btn-primary">
+                        <span class="btn-text">Run analysis</span>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Diagnostics pane -->
+            <section class="diagnostics-pane">
+                <div class="pane-header" id="diagnosticsHeader">
+                    <h2>Diagnostics</h2>
+                </div>
+
+                <div class="pane-body diagnostics-placeholder" id="placeholderView">
+                    <div class="placeholder-message">
+                        <div class="placeholder-ring" aria-hidden="true">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2L4 5.5V11c0 5.2 3.4 9.7 8 11 4.6-1.3 8-5.8 8-11V5.5L12 2z"></path></svg>
+                        </div>
+                        <p>No submission yet. Run an analysis to see the score and findings here.</p>
+                    </div>
+                </div>
+
+                <div class="pane-body diagnostics-results" id="resultsContainer" style="display: none;">
+
+                    <div class="status-readout" id="statusReadout">
+                        <span class="status-readout-icon" id="statusReadoutIcon"></span>
+                        <div>
+                            <span class="status-readout-title" id="statusReadoutTitle">--</span>
+                            <span class="status-readout-sub" id="statusReadoutSub">--</span>
+                        </div>
+                    </div>
+
+                    <div class="metadata-profile">
+                        <h3>Submission details</h3>
+                        <div class="profile-grid">
+                            <div class="profile-item">
+                                <span class="lbl">Language</span>
+                                <span class="val" id="resLanguage">--</span>
+                            </div>
+                            <div class="profile-item">
+                                <span class="lbl">Source</span>
+                                <span class="val" id="resSourceType">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

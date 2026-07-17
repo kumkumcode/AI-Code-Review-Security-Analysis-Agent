@@ -1,161 +1,227 @@
-# A05:2021 – Security Misconfiguration    ![icon](assets/TOP_10_Icons_Final_Security_Misconfiguration.png){: style="height:80px;width:80px" align="right"}
+Copy and paste this entire code block directly into your main A05_2021-Security_Misconfiguration.md file:
+
+Markdown
+---
+id: OWASP-2021-A05
+title: Security Misconfiguration
+category: Security Misconfiguration
+severity_hint: High
+languages: [python, java]
+cwes: [CWE-2, CWE-11, CWE-13, CWE-15, CWE-16, CWE-260, CWE-315, CWE-520, CWE-526, CWE-537, CWE-541, CWE-547, CWE-611, CWE-614, CWE-756, CWE-776, CWE-942, CWE-1004, CWE-1032, CWE-1174]
+related_guidelines: [CONFIG-1, HARDENING-1]
+---
+
+# A05:2021 – Security Misconfiguration
 
 ## Factors
 
 | CWEs Mapped | Max Incidence Rate | Avg Incidence Rate | Avg Weighted Exploit | Avg Weighted Impact | Max Coverage | Avg Coverage | Total Occurrences | Total CVEs |
 |:-------------:|:--------------------:|:--------------------:|:--------------:|:--------------:|:----------------------:|:---------------------:|:-------------------:|:------------:|
-| 20          | 19.84%             | 4.51%              | 8.12                 | 6.56                | 89.58%       | 44.84%       | 208,387           | 789        |
+| 20 | 19.84% | 4.51% | 8.12 | 6.56 | 89.58% | 44.84% | 208,387 | 789 |
 
 ## Overview
+Security Misconfiguration can occur at any level of an application stack, including network services, platform infrastructure, web servers, database systems, containers, and custom application frameworks. It includes missing appropriate hardening, active default features, and overly informative error messages.
 
-Moving up from #6 in the previous edition, 90% of applications were
-tested for some form of misconfiguration, with an average incidence rate of 4.51%, and over 208k occurrences of a Common Weakness Enumeration (CWE) in this risk category. With more shifts into highly configurable software, it's not surprising to see this category move up.
-Notable CWEs included are *CWE-16 Configuration* and *CWE-611 Improper
-Restriction of XML External Entity Reference*.
+### 🛡️ Secure Deployment Process
+┌─────────────────────────────────────────────────────────────┐
+│              Automated Infrastructure (IaC / GitOps)        │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 1. HARDEN STACK (Disable defaults, debug logs, unused ports)│
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. SECURE CLIENT HEADERS (HSTS, CSP, HttpOnly, Secure Flags)│
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. ENFORCE XML SAFEPARSING (Disable DTDs & External Entities)│
+└─────────────────────────────────────────────────────────────┘
 
-## Description 
 
-The application might be vulnerable if the application is:
+---
 
--   Missing appropriate security hardening across any part of the
-    application stack or improperly configured permissions on cloud
-    services.
+## Modern Python Examples
 
--   Unnecessary features are enabled or installed (e.g., unnecessary
-    ports, services, pages, accounts, or privileges).
+### ❌ Insecure XML Parsing (CWE-611: XML External Entity - XXE)
+By default, some legacy Python libraries or misconfigured parsers allow document type definitions (DTDs) and external entities, permitting system file leakage.
+```python
+from fastapi import FastAPI, Request
+from lxml import etree
 
--   Default accounts and their passwords are still enabled and
-    unchanged.
+app = FastAPI()
 
--   Error handling reveals stack traces or other overly informative
-    error messages to users.
+@app.post("/upload-xml")
+async def parse_xml(request: Request):
+    body = await request.body()
+    # VULNERABLE: Parser configured with resolve_entities=True allows XXE injection
+    parser = etree.XMLParser(resolve_entities=True, no_network=False)
+    root = etree.fromstring(body, parser=parser)
+    return {"message": "Parsed successfully", "root_tag": root.tag}
+✅ Secure XML Parsing (XXE Mitigation)
+Explicitly disabling DTD parsing and external entity resolution ensures the XML processor ignores malicious remote references entirely.
 
--   For upgraded systems, the latest security features are disabled or
-    not configured securely.
+Python
+from fastapi import FastAPI, Request
+from lxml import etree
 
--   The security settings in the application servers, application
-    frameworks (e.g., Struts, Spring, ASP.NET), libraries, databases,
-    etc., are not set to secure values.
+app = FastAPI()
 
--   The server does not send security headers or directives, or they are
-    not set to secure values.
+@app.post("/upload-xml")
+async def parse_xml(request: Request):
+    body = await request.body()
+    # SECURE: Explicitly disable external entity resolution and DTD loading
+    parser = etree.XMLParser(resolve_entities=False, dtd_validation=False)
+    # Ensure no network access is permitted during parsing processes
+    parser.resolvers.add(etree.Resolver()) 
+    
+    root = etree.fromstring(body, parser=parser)
+    return {"message": "Parsed safely", "root_tag": root.tag}
+❌ Insecure Middleware Configuration (Missing Security Headers)
+Running a public API without sending modern browser instructions leaves users susceptible to Clickjacking, MIME-sniffing, and cross-site scripting.
 
--   The software is out of date or vulnerable (see [A06:2021-Vulnerable
-    and Outdated Components](A06_2021-Vulnerable_and_Outdated_Components.md)).
+Python
+from fastapi import FastAPI
 
-Without a concerted, repeatable application security configuration
-process, systems are at a higher risk.
+app = FastAPI()
 
-## How to Prevent
+@app.get("/data")
+def read_data():
+    # VULNERABLE: Standard response without protective security headers
+    return {"secure": False}
+✅ Secure Middleware Configuration (Enforcing HTTP Headers)
+Registering structured middleware ensuring every response conveys explicit isolation guidelines to modern client runtimes.
 
-Secure installation processes should be implemented, including:
+Python
+from fastapi import FastAPI, Request
 
--   A repeatable hardening process makes it fast and easy to deploy
-    another environment that is appropriately locked down. Development,
-    QA, and production environments should all be configured
-    identically, with different credentials used in each environment.
-    This process should be automated to minimize the effort required to
-    set up a new secure environment.
+app = FastAPI()
 
--   A minimal platform without any unnecessary features, components,
-    documentation, and samples. Remove or do not install unused features
-    and frameworks.
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # SECURE: Enforce essential security directives
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+    return response
+Modern Java Examples
+❌ Insecure DocumentBuilder (CWE-611: Java XXE)
+Java
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.xml.sax.InputSource;
+import java.io.StringReader;
 
--   A task to review and update the configurations appropriate to all
-    security notes, updates, and patches as part of the patch management
-    process (see [A06:2021-Vulnerable
-    and Outdated Components](A06_2021-Vulnerable_and_Outdated_Components.md)). Review
-    cloud storage permissions (e.g., S3 bucket permissions).
+public class XmlParser {
+    public void parse(String xmlInput) throws Exception {
+        // VULNERABLE: Default parser properties resolve external entities
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        var builder = dbf.newDocumentBuilder();
+        var doc = builder.parse(new InputSource(new StringReader(xmlInput)));
+    }
+}
+✅ Secure DocumentBuilder (Disabling External DTDs)
+Java
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.xml.sax.InputSource;
+import java.io.StringReader;
 
--   A segmented application architecture provides effective and secure
-    separation between components or tenants, with segmentation,
-    containerization, or cloud security groups (ACLs).
+public class XmlParser {
+    public void parse(String xmlInput) throws Exception {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        
+        // SECURE: Explicitly disable DTDs (Document Type Definitions) completely
+        String FEATURE = "[http://apache.org/xml/features/disallow-doctype-decl](http://apache.org/xml/features/disallow-doctype-decl)";
+        dbf.setFeature(FEATURE, true);
+        
+        // Alternative protection if DTDs are strictly necessary but external entities are not:
+        dbf.setFeature("[http://xml.org/sax/features/external-general-entities](http://xml.org/sax/features/external-general-entities)", false);
+        dbf.setFeature("[http://xml.org/sax/features/external-parameter-entities](http://xml.org/sax/features/external-parameter-entities)", false);
+        dbf.setFeature("[http://apache.org/xml/features/nonvalidating/load-external-dtd](http://apache.org/xml/features/nonvalidating/load-external-dtd)", false);
+        dbf.setXIncludeAware(false);
+        dbf.setExpandEntityReferences(false);
 
--   Sending security directives to clients, e.g., Security Headers.
+        var builder = dbf.newDocumentBuilder();
+        var doc = builder.parse(new InputSource(new StringReader(xmlInput)));
+    }
+}
+Real-World Edge Cases & Advanced Vulnerabilities
+1. S3 / Cloud Storage Permissive Policies
+Cloud misconfigurations frequently expose private resources due to overly permissive Access Control Lists (ACLs) or wildcards in identity policies.
 
--   An automated process to verify the effectiveness of the
-    configurations and settings in all environments.
+The Flaw: Granting wildcard read or write permissions (*) to dynamic resource actions.
 
-## Example Attack Scenarios
+Remediation: Apply the Principle of Least Privilege. Restrict storage policies to specific IAM roles instead of using anonymous access parameters.
 
-**Scenario #1:** The application server comes with sample applications
-not removed from the production server. These sample applications have
-known security flaws attackers use to compromise the server. Suppose one
-of these applications is the admin console, and default accounts weren't
-changed. In that case, the attacker logs in with default passwords and
-takes over.
+2. Cookie Management without Secure Flags
+Transmitting sensitive cookies (such as session tokens or anti-CSRF state) over unencrypted connections or allowing client scripts to read them.
 
-**Scenario #2:** Directory listing is not disabled on the server. An
-attacker discovers they can simply list directories. The attacker finds
-and downloads the compiled Java classes, which they decompile and
-reverse engineer to view the code. The attacker then finds a severe
-access control flaw in the application.
+The Flaw: Omitting the HttpOnly and Secure attributes on session identifiers.
 
-**Scenario #3:** The application server's configuration allows detailed
-error messages, e.g., stack traces, to be returned to users. This
-potentially exposes sensitive information or underlying flaws such as
-component versions that are known to be vulnerable.
+Remediation: Always compile cookies with HttpOnly=true, Secure=true, and explicit SameSite=Strict (or Lax) policies.
 
-**Scenario #4:** A cloud service provider (CSP) has default sharing
-permissions open to the Internet by other CSP users. This allows
-sensitive data stored within cloud storage to be accessed.
+How to Prevent
+Automated Hardening: Use Infrastructure-as-Code (IaC) templates to programmatically maintain identical sandbox, staging, and production server profiles.
 
-## References
+Strip Default Assets: Actively remove developer sample scripts, administrative console templates, and generic helper utilities from deployment bundles.
 
--   [OWASP Testing Guide: Configuration
-    Management](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/README)
+Control Security Headers: Configure robust HTTP system boundaries (such as Content Security Policy, HSTS, and X-Content-Type-Options) by default.
 
--   [OWASP Testing Guide: Testing for Error Codes](https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/08-Testing_for_Error_Handling/01-Testing_For_Improper_Error_Handling)
+Enforce Safe Defaults for Parsers: Configure all JSON, XML, and template engine processors to explicitly reject external structural parsing queries.
 
--   [Application Security Verification Standard V14 Configuration](https://github.com/OWASP/ASVS/blob/master/4.0/en/0x22-V14-Config.md)
+References
+OWASP Cheat Sheet: XML External Entity Prevention
 
--   [NIST Guide to General Server
-    Hardening](https://csrc.nist.gov/publications/detail/sp/800-123/final)
+OWASP ASVS: V14 Configuration Verification
 
--   [CIS Security Configuration
-    Guides/Benchmarks](https://www.cisecurity.org/cis-benchmarks/)
+CIS Security Benchmarks
 
--   [Amazon S3 Bucket Discovery and
-    Enumeration](https://blog.websecurify.com/2017/10/aws-s3-bucket-discovery.html)
+NIST SP 800-123: Guide to General Server Hardening
 
-## List of Mapped CWEs
+# Security Misconfiguration Addendum: Practical Hardening Controls
 
-[CWE-2 7PK - Environment](https://cwe.mitre.org/data/definitions/2.html)
+## Python — Debug Mode Enabled in Production
 
-[CWE-11 ASP.NET Misconfiguration: Creating Debug Binary](https://cwe.mitre.org/data/definitions/11.html)
+Running an application in debug mode can expose interactive debugger consoles, structural source files, and stack traces directly to external actors, leading to remote code execution (RCE) or information disclosure.
 
-[CWE-13 ASP.NET Misconfiguration: Password in Configuration File](https://cwe.mitre.org/data/definitions/13.html)
+### ❌ Insecure Configuration (Unconditional Debug Mode)
+```python
+from flask import Flask
+app = Flask(__name__)
 
-[CWE-15 External Control of System or Configuration Setting](https://cwe.mitre.org/data/definitions/15.html)
+# VULNERABLE: Direct enforcement of debug console and system-wide visibility
+app.run(debug=True, host="0.0.0.0")
+✅ Secure Configuration (Environment-Driven Evaluation)
+Python
+import os
+from flask import Flask
+app = Flask(__name__)
 
-[CWE-16 Configuration](https://cwe.mitre.org/data/definitions/16.html)
+# SECURE: Read state from external system environments defaulting to strict safe modes
+app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "False").strip().lower() == "true"
 
-[CWE-260 Password in Configuration File](https://cwe.mitre.org/data/definitions/260.html)
+# Enforce host bindings depending on production segregation needs
+app.run(debug=app.config["DEBUG"], host="127.0.0.1")
+Java — Verbose Error Pages Exposing Stack Traces
+Standard Spring Boot/Java deployment parameters can expose active database connections, table names, and logical code layers within browser-facing response bodies when internal application exceptions arise.
 
-[CWE-315 Cleartext Storage of Sensitive Information in a Cookie](https://cwe.mitre.org/data/definitions/315.html)
+❌ Insecure Configuration (Verbose Error Diagnostics)
+Properties
+# application.properties
+# VULNERABLE: Exposes critical exception details and execution paths to clients
+server.error.include-stacktrace=always
+server.error.include-message=always
+✅ Secure Configuration (Sanitized Response Structures)
+Properties
+# application.properties
+# SECURE: Restrict debug errors to localized system/container logging agents
+server.error.include-stacktrace=never
+server.error.include-message=never
+Key Configuration Checklists
+No Production Debug Runs: Never deploy service runtimes with debug indicators turned on. Ensure build configurations or CI/CD pipelines strip out debugging states.
 
-[CWE-520 .NET Misconfiguration: Use of Impersonation](https://cwe.mitre.org/data/definitions/520.html)
+Access Hardening: Disable server directory listings (e.g., Options -Indexes in Apache/Nginx routing configurations) and instantly scrub out default accounts or built-in developer templates.
 
-[CWE-526 Exposure of Sensitive Information Through Environmental Variables](https://cwe.mitre.org/data/definitions/526.html)
-
-[CWE-537 Java Runtime Error Message Containing Sensitive Information](https://cwe.mitre.org/data/definitions/537.html)
-
-[CWE-541 Inclusion of Sensitive Information in an Include File](https://cwe.mitre.org/data/definitions/541.html)
-
-[CWE-547 Use of Hard-coded, Security-relevant Constants](https://cwe.mitre.org/data/definitions/547.html)
-
-[CWE-611 Improper Restriction of XML External Entity Reference](https://cwe.mitre.org/data/definitions/611.html)
-
-[CWE-614 Sensitive Cookie in HTTPS Session Without 'Secure' Attribute](https://cwe.mitre.org/data/definitions/614.html)
-
-[CWE-756 Missing Custom Error Page](https://cwe.mitre.org/data/definitions/756.html)
-
-[CWE-776 Improper Restriction of Recursive Entity References in DTDs ('XML Entity Expansion')](https://cwe.mitre.org/data/definitions/776.html)
-
-[CWE-942 Permissive Cross-domain Policy with Untrusted Domains](https://cwe.mitre.org/data/definitions/942.html)
-
-[CWE-1004 Sensitive Cookie Without 'HttpOnly' Flag](https://cwe.mitre.org/data/definitions/1004.html)
-
-[CWE-1032 OWASP Top Ten 2017 Category A6 - Security Misconfiguration](https://cwe.mitre.org/data/definitions/1032.html)
-
-[CWE-1174 ASP.NET Misconfiguration: Improper Model Validation](https://cwe.mitre.org/data/definitions/1174.html)
+Generic Failures: Standardize global server exception filters to yield consistent, sanitized error structures to consumers while preserving the raw traceback data solely within secure internal logger endpoints.

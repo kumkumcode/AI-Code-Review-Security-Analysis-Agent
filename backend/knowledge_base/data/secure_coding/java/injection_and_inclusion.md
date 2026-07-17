@@ -1,95 +1,500 @@
-Guideline 3-1 / INJECT-1: Generate valid formatting
-Attacks using maliciously crafted inputs to cause incorrect formatting of outputs are well-documented [7]. Such attacks generally involve exploiting special characters in an input string, incorrect escaping, or partial removal of special characters.
+To transform these raw injection and processing guidelines into a premium, RAG-ready dataset, we will parse and modularize Guideline 3-1 through 3-9 (Injection & Input Parsing - INJECT-1 to INJECT-9).
 
-If the input string has a particular format, combining correction and validation is highly error prone. Parsing and canonicalization should be done before validation. If possible, reject invalid data and any subsequent data, without attempting correction. For instance, many network protocols are vulnerable to cross-site POST attacks, by interpreting the HTTP body even though the HTTP header causes errors.
+As with the previous sets, we will completely eliminate dense academic paragraphs, strip away non-essential text, map each file to its respective CWE targets, and build clear Insecure / Flawed / Secure code triads that account for the modern JVM landscape of 2026.
 
-Use well-tested libraries instead of ad hoc code. There are many libraries for creating XML. Creating XML documents using raw text is error-prone. For unusual formats where appropriate libraries do not exist, such as configuration files, create classes that cleanly handle all formatting and only formatting code.
+File 13: Input Parsing, SQL, and HTML/XML Injection (INJECT-1, 2, 3)
+Markdown
+---
+id: JAVA-INJECT-01-03
+title: Valid Formatting, SQL Parameterization, and Output Encoding
+category: Injection Vulnerabilities
+severity_hint: Critical
+cwe: [CWE-89, CWE-79, CWE-116, CWE-20]
+java_versions: "All Versions (Always Applicable)"
+---
 
+# Valid Formatting, SQL Parameterization, and Output Encoding
 
-Guideline 3-2 / INJECT-2: Avoid dynamic SQL
-It is well known that dynamically created SQL statements including untrusted input are subject to command injection. This often takes the form of supplying an input containing a quote character (') followed by SQL. Avoid dynamic SQL.
+## Overview
+Combining string correction and validation is highly error-prone. Perform parsing and canonicalization *before* validating inputs. Always use well-tested libraries rather than ad hoc escaping logic when constructing XML, HTML, or executing database queries. 
 
-For parameterized SQL statements using Java Database Connectivity (JDBC), use java.sql.PreparedStatement or java.sql.CallableStatement instead of java.sql.Statement. In general, it is better to use a well-written, higher-level library to insulate application code from SQL. When using such a library, it is not necessary to limit characters such as quote ('). If text destined for XML/HTML is handled correctly during output (Guideline 3-3), then it is unnecessary to disallow characters such as less than (<) in inputs to SQL.
+---
 
-An example of using PreparedStatement correctly:
+## Code Triad
 
-Copy
-Copied to ClipboardError: Could not Copy
-String sql = "SELECT * FROM User WHERE userId = ?"; 
-PreparedStatement stmt = con.prepareStatement(sql); 
-stmt.setString(1, userId); 
-ResultSet rs = prepStmt.executeQuery();
+### ❌ Insecure (Dynamic SQL, Ad-hoc Escaping, and Direct String Concat)
+Directly concatenating untrusted inputs into SQL strings and using manual string replacement to "sanitize" HTML outputs.
+```java
+package com.app.inject;
 
-Guideline 3-3 / INJECT-3: XML and HTML generation requires care
-Untrusted data should be properly sanitized before being included in HTML or XML output. Failure to properly sanitize the data can lead to many different security problems, such as Cross-Site Scripting (XSS) and XML Injection vulnerabilities. It is important to be particularly careful when using Java Server Pages (JSP).
+import java.sql.*;
 
-There are many ways to sanitize data before including it in output. Characters that are problematic for the specific type of output can be filtered, escaped, or encoded. Alternatively, characters that are known to be safe can be allowed, and everything else can be filtered, escaped, or encoded. This latter approach is preferable, as it does not require identifying and enumerating all characters that could potentially cause problems.
+public class QueryHandler {
+    // VULNERABLE: Direct SQL Injection via dynamic query assembly
+    public void searchUserUnsafe(Connection conn, String userId, String userBio) throws SQLException {
+        String sql = "SELECT * FROM users WHERE id = '" + userId + "'";
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql);
+        
+        // VULNERABLE: Weak, easily bypassed HTML escaping using manual string manipulation
+        String escapedBio = userBio.replace("<", "&lt;").replace(">", "&gt;");
+        System.out.println("<div>" + escapedBio + "</div>");
+    }
+}
+⚠️ Flawed Attempt (Incorrect PreparedStatement Usage)
+Using a PreparedStatement but still appending unvalidated, dynamic string components to the SQL query template prior to execution.
 
-Implementing correct data sanitization and encoding can be tricky and error prone. Therefore, it is better to use a library to perform these tasks during HTML or XML construction.
+Java
+package com.app.inject;
 
+import java.sql.*;
 
-Guideline 3-4 / INJECT-4: Avoid any untrusted data on the command line
-When creating new processes, do not place any untrusted data on the command line. Behavior is platform-specific, poorly documented, and frequently surprising. Malicious data may, for instance, cause a single argument to be interpreted as an option (typically a leading - on Unix or / on Windows) or as two separate arguments. Any data that needs to be passed to the new process should be passed either as encoded arguments (e.g., Base64), in a temporary file, or through a inherited channel.
+public class QueryHandler {
+    public void searchUserFlawed(Connection conn, String column, String value) throws SQLException {
+        // FLAWED: PreparedStatement parameter placeholders (?) cannot be used for structural SQL 
+        // elements like table/column names. Dynamically concatenating the 'column' parameter reintroduces SQL injection.
+        String sql = "SELECT * FROM users WHERE " + column + " = ?";
+        PreparedStatement pstmt = conn.prepareStatement(sql);
+        pstmt.setString(1, value);
+        ResultSet rs = pstmt.executeQuery();
+    }
+}
+✅ Secure (Parameterized SQL & Context-Aware Output Encoding)
+Enforce strict parameterization for query data values, validate dynamic column identifiers against an explicit structural allow-list, and utilize verified libraries (such as OWASP Encoder) for output escaping.
 
+Java
+package com.app.inject;
 
-Guideline 3-5 / INJECT-5: Restrict XML inclusion
-XML Document Type Definitions (DTDs) allow URLs to be defined as system entities, such as local files and HTTP URLs within the local intranet or localhost. XML External Entity (XXE) attacks insert local files into XML data which may then be accessible to the client. Similar attacks may be made using XInclude, the XSLT document function, and the XSLT import and include elements. The safest way to avoid these problems while maintaining the power of XML is to reduce privileges (as described in Guideline 9-2) and to use the most restrictive configuration possible for the XML parser. Reducing privileges still allows you to grant some access, such as inclusion to pages from the same-origin web site if necessary. XML parsers can also be configured to limit functionality based on what is required, such as disallowing external entities or disabling DTDs altogether.
+import java.sql.*;
+import java.util.Set;
+import org.owasp.encoder.Encode;
 
-Note that this issue generally applies to the use of APIs that use XML but are not specifically XML APIs.
+public class QueryHandler {
+    private static final Set<String> ALLOWED_COLUMNS = Set.of("username", "email", "created_at");
 
+    public void searchUserSecure(Connection conn, String column, String value, String userBio) throws SQLException {
+        // SECURE: Strict structural validation using an allow-list
+        if (!ALLOWED_COLUMNS.contains(column)) {
+            throw new IllegalArgumentException("Unauthorized column target: " + column);
+        }
 
-Guideline 3-6 / INJECT-6: Care with BMP files
-BMP images files may contain references to local ICC (International Color Consortium) files. Whilst the contents of ICC files is unlikely to be interesting, the act of attempting to read files may be an issue. Either avoid BMP files, or reduce privileges as Guideline 9-2.
+        // SECURE: Enforce fully parameterized SQL execution
+        String sql = "SELECT * FROM users WHERE " + column + " = ?";
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, value);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                // Process results...
+            }
+        }
 
-
-Guideline 3-7 / INJECT-7: Disable HTML display in Swing components
-Many Swing pluggable look-and-feels interpret text in certain components starting with <html> as HTML. If the text is from an untrusted source, an adversary may craft the HTML such that other components appear to be present or to perform inclusion attacks.
-
-To disable the HTML render feature, set the "html.disable" client property of each component to Boolean.TRUE (no other Boolean true instance will do).
-
-label.putClientProperty("html.disable", true);
-
-
-Guideline 3-8 / INJECT-8: Take care interpreting untrusted code
-Code can be hidden in a number of places. If the source is not trusted to supply code, then a secure sandbox must be constructed to run it in. Some examples of components or APIs that can potentially execute untrusted code include:
-
-Scripts run through the javax.script scripting API or similar.
-LiveConnect interfaces with JavaScript running in the browser1. The JavaScript running on a web page will not usually have been verified with an object code signing certificate.
-By default the Oracle implementation of the XSLT interpreter enables extensions to call Java code. Set the javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING feature to disable it.
-Long Term Persistence of JavaBeans Components supports execution of Java statements. Long Term Bean Persistency [26] is a feature to transfer the state of an object via an XML representation, typically stored in files. Applications (especially those from the XML-era) may choose to handle their inter-process communication via this mechanism. However, while the use for bean compatible classes such as UI-controls is widely known, it is also possible to instantiate and potentially make calls to arbitrary classes, via method calls that are scripted in the XML file. Fortunately, the programmer can still introspect the content and intercept a potential malicious input. Application developers may therefore choose to re-inspect whether their code is using XML Bean Persistence, and as defense measure add appropriate checks and interception points. This includes third-party dependencies that may also make use of Bean Persistency.
-Java Sound will load code through the javax.sound.midi.MidiSystem.getSoundbank methods.
-RMI may allow loading of remote code specified by remote connection. On the Oracle JDK, this is disabled by default but may be enabled or disabled through the java.rmi.server.useCodebaseOnly system property.
-LDAP (RFC 2713) allows loading of remote code in a server response. On the Oracle JDK, this is disabled by default but may be enabled or disabled through the com.sun.jndi.ldap.object.trustURLCodebase system property.
-Many SQL implementations allow execution of code with effects outside of the database itself.
-Performing JNDI lookups using untrusted data should be avoided, as it can lead to interactions with potentially malicious CORBA, LDAP, or RMI servers, or other malicious systems. If it cannot be avoided, then appropriate safety measures should be taken, including all of the following:
-Ensuring that system properties related to remote class loading (discussed earlier in this guideline) are set to secure values.
-Ensuring that system properties related to JNDI object factories are set to secure values. This includes jdk.jndi.object.factoriesFilter, jdk.jndi.ldap.object.factoriesFilter, and jdk.jndi.rmi.object.factoriesFilter. See [27] and [28] for additional information. It is also necessary to ensure that none of the allowed object factories (e.g., javax.naming.spi.ObjectFactory implementations) on the class path can be abused by attackers during the lookup process.
-Leveraging restrictive deserialization filters (see Guideline 8-6 for more information), disabling LDAP serialization via com.sun.jndi.ldap.object.trustSerialData [27], and more generally following the deserialization guidance covered in Section 8.
-Annotation processors: When compiling Java code, there is an option to run annotation processors found in the code base. This feature is disabled by default. Running untrusted annotation processors may cause unexpected or hostile side effects.
-
-Guideline 3-9 / INJECT-9: Prevent injection of exceptional floating point values
-Working with floating point numbers requires care when importing those from outside of a trust boundary, as the NaN (not a number) or infinite values can be injected into applications via untrusted input data, for example by conversion of (untrusted) Strings converted by the Double.valueOf method. Unfortunately the processing of exceptional values is typically not immediately noticed without introducing sanitization code. Moreover, passing an exceptional value to an operation propagates the exceptional numeric state to the operation result.
-
-Both positive and negative infinity values are possible outcomes of a floating point operation [2], when results become too high or too low to be representable by the memory area that backs a primitive floating point value. Also, the exceptional value NaN can result from dividing 0.0 by 0.0 or subtracting infinity from infinity.
-
-The results of casting propagated exceptional floating point numbers to short, integer and long primitive values need special care, too. This is because an integer conversion of a NaN value will result in a 0, and a positive infinite value is transformed to Integer.MAX_VALUE (or Integer.MIN_VALUE for negative infinity), which may not be correct in certain use cases.
-
-There are distinct application scenarios where these exceptional values are expected, such as scientific data analysis which relies on numeric processing. However, it is advised that the result values be contained for that purpose in the local component. This can be achieved by sanitizing any floating point results before passing them back to the generic parts of an application.
-
-Operations that involve AffineTransform objects can cause exceptional states to occur in 2D calculations, and potentially when unchecked, later negative/oversized allocations. At a minimum, the end result of a transformation should be checked for exceptional values (+/-Infinity, NaN).
-
-As mentioned before, the programmer may wish to include sanitization code for these exceptional values when working with floating point numbers, especially if related to authorization or authentication decisions, or forwarding floating point values to JNI. The Double and Float classes help with sanitization by providing the isNan and isInfinite methods. Also keep in mind that comparing instances of Double.NaN via the equality operator always results to be false, which may cause lookup problems in maps or collections when using the equality operator on a wrapped double field within the equals method in a class definition.
-
-A typical code pattern that can block further processing of unexpected floating point numbers is shown in the following example snippet.
-
-Copy
-Copied to ClipboardError: Could not Copy
-if (Double.isNaN(untrusted_double_value)) {
-    // specific action for non-number case
+        // SECURE: Use a trusted, context-aware library for HTML output escaping
+        String safeHtml = Encode.forHtml(userBio);
+        System.out.println("<div>" + safeHtml + "</div>");
+    }
 }
 
-if (Double.isInfinite(untrusted_double_value)){
-    // specific action for infinite case
+---
+
+### File 14: Command Line & Process Injection Protection (`INJECT-4`)
+
+```markdown
+---
+id: JAVA-INJECT-04
+title: Preventing Command-Line Argument and Process Injection
+category: Command Injection / Argument Injection
+severity_hint: Critical
+cwe: [CWE-78, CWE-88]
+java_versions: "All Versions (Always Applicable)"
+---
+
+# Preventing Command-Line Argument and Process Injection
+
+## Overview
+Passing raw, untrusted user inputs directly as system command arguments is highly dangerous. Command parsers are platform-specific and behave unpredictably. An attacker can supply arguments starting with flags (e.g., `-` or `/`) to alter process execution properties, or force spaces to split single parameters into multiple parameters.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Concatenated Shell Execution)
+Executing operating system processes by concatenating raw, untrusted strings inside a system shell runtime.
+```java
+package com.app.inject;
+
+import java.io.IOException;
+
+public class ProcessExecutor {
+    // VULNERABLE: String concatenation allows argument injection and subshell execution (e.g. "file.txt; rm -rf /")
+    public void inspectFileUnsafe(String userFilename) throws IOException {
+        Runtime.getRuntime().exec("sh -c 'ls -la " + userFilename + "'");
+    }
+}
+⚠️ Flawed Attempt (Array-Based Parsing without Flag Sanitization)
+Using ProcessBuilder with an array of arguments, but allowing user inputs to serve directly as individual command parameters without validating if they contain leading options/flags.
+
+Java
+package com.app.inject;
+
+import java.io.IOException;
+
+public class ProcessExecutor {
+    public void inspectFileFlawed(String userFilename) throws IOException {
+        // FLAWED: While ProcessBuilder prevents basic subshell injection (; or &&), 
+        // an attacker can supply a value starting with a hyphen (e.g., "--help" or "-R") 
+        // to inject arguments/options into the target execution binary.
+        ProcessBuilder pb = new ProcessBuilder("ls", "-la", userFilename);
+        pb.start();
+    }
+}
+✅ Secure (Decoupled Process Execution and Safe Argument Encoding)
+Avoid using operating system commands where native Java APIs exist. If a subprocess is unavoidable, validate that arguments do not start with hyphen-prefixed option characters, or pass input via standard input (stdin)/temporary files.
+
+Java
+package com.app.inject;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+public class ProcessExecutor {
+    private static final Path SAFE_DIR = Paths.get("/var/app/sandbox").toAbsolutePath().normalize();
+
+    public void inspectFileSecure(String userFilename) throws IOException {
+        // SECURE: Enforce strict format matching (no hyphens or path-traversal patterns allowed)
+        if (!userFilename.matches("^[a-zA-Z0-9_]+\\.[a-z]{3}$")) {
+            throw new IllegalArgumentException("Invalid filename characters");
+        }
+
+        Path target = SAFE_DIR.resolve(userFilename).toAbsolutePath().normalize();
+        if (!target.startsWith(SAFE_DIR) || !Files.exists(target)) {
+            throw new SecurityException("Unauthorized file target access.");
+        }
+
+        // SECURE: Native process separation using array-based arguments with validated flags
+        ProcessBuilder pb = new ProcessBuilder("ls", "-la", target.toString());
+        pb.start();
+    }
 }
 
-// normal processing starts here
+---
+
+### File 15: Secure XML Processing & XXE Restriction (`INJECT-5`)
+
+```markdown
+---
+id: JAVA-INJECT-05
+title: Disabling XML External Entities (XXE) and DTD Processing
+category: XML Injection / XXE
+severity_hint: Critical
+cwe: [CWE-611, CWE-827]
+java_versions: "All Versions (Always Applicable)"
+---
+
+# Disabling XML External Entities (XXE) and DTD Processing
+
+## Overview
+By default, standard Java XML parsers are configured to resolve external Document Type Definitions (DTDs) and System Entities. This permits attackers to craft malicious XML files that extract local server files (via XXE) or perform Server-Side Request Forgery (SSRF) when the document is parsed.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Default XML Parser Configurations)
+Initializing and parsing an untrusted XML payload using a default parser instance with no features disabled.
+```java
+package com.app.inject;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import java.io.InputStream;
+
+public class XmlParser {
+    // VULNERABLE: Default DocumentBuilder permits external system entities and DTD resolution (XXE)
+    public Document parseXmlUnsafe(InputStream xmlStream) throws Exception {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        return dbf.newDocumentBuilder().parse(xmlStream);
+    }
+}
+⚠️ Flawed Attempt (Incomplete Secure Processing Feature Activation)
+Enabling the XMLConstants.FEATURE_SECURE_PROCESSING setting alone. While this limits entity expansion size, it does not reliably block external system entity lookup in all JVM implementation profiles.
+
+Java
+package com.app.inject;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import java.io.InputStream;
+
+public class XmlParser {
+    public Document parseXmlFlawed(InputStream xmlStream) throws Exception {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        // FLAWED: This feature alone does not guarantee safety against local file retrieval (XXE) 
+        // across all XML parsers/JDK installations.
+        dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        return dbf.newDocumentBuilder().parse(xmlStream);
+    }
+}
+✅ Secure (Explicitly Disabling DTDs and External Entities)
+Configure the parser to explicitly disable DTD execution, external entity declaration, and external parameter entity processing.
+
+Java
+package com.app.inject;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import java.io.InputStream;
+
+public class XmlParser {
+    public Document parseXmlSecure(InputStream xmlStream) throws Exception {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+
+        // SECURE: Disallow DTDs entirely to mitigate XXE injection completely
+        dbf.setFeature("[http://apache.org/xml/features/disallow-doctype-decl](http://apache.org/xml/features/disallow-doctype-decl)", true);
+
+        // SECURE: If DTDs are absolutely required, block external references specifically
+        dbf.setFeature("[http://xml.org/sax/features/external-general-entities](http://xml.org/sax/features/external-general-entities)", false);
+        dbf.setFeature("[http://xml.org/sax/features/external-parameter-entities](http://xml.org/sax/features/external-parameter-entities)", false);
+        dbf.setFeature("[http://apache.org/xml/features/nonvalidating/load-external-dtd](http://apache.org/xml/features/nonvalidating/load-external-dtd)", false);
+
+        dbf.setXIncludeAware(false);
+        dbf.setExpandEntityReferences(false);
+
+        return dbf.newDocumentBuilder().parse(xmlStream);
+    }
+}
+
+---
+
+### File 16: Swing Component HTML Rendering & BMP Security (`INJECT-6`, `7`)
+
+```markdown
+---
+id: JAVA-INJECT-06-07
+title: Safe Swing UI Rendering and BMP File Processing
+category: Injection Vulnerabilities / Denial of Service
+severity_hint: Low
+cwe: [CWE-79, CWE-400]
+java_versions: "All Versions (Always Applicable)"
+---
+
+# Safe Swing UI Rendering and BMP File Processing
+
+## Overview
+Many Swing components (such as `JLabel`, `JButton`, and `JToolTip`) render text starting with the tag `<html>` as functional HTML. Displaying untrusted input in these fields lets adversaries execute client-side injection or manipulate rendering structures. Additionally, parsing BMP image files with embedded ICC color profile lookups can lead to unexpected local I/O resource consumption.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Exposing Raw Inputs to Swing Renderers & BMP Loaders)
+Passing raw user-derived input directly into Swing text setters, and loading arbitrary BMP files without restrictive isolation boundaries.
+```java
+package com.app.gui;
+
+import javax.swing.JLabel;
+
+public class PanelView {
+    // VULNERABLE: If input starts with "<html>", Swing renders it, permitting layout manipulation
+    public void updateUserLabelUnsafe(JLabel label, String untrustedInput) {
+        label.setText(untrustedInput); 
+    }
+}
+⚠️ Flawed Attempt (Weak HTML Tag Stripping)
+Attempting to sanitize the input using simple regex string-matching to strip out <html> elements before rendering.
+
+Java
+package com.app.gui;
+
+import javax.swing.JLabel;
+
+public class PanelView {
+    public void updateUserLabelFlawed(JLabel label, String untrustedInput) {
+        // FLAWED: Case-insensitive variations or leading whitespace can bypass this check
+        String sanitized = untrustedInput;
+        if (untrustedInput.startsWith("<html>")) {
+            sanitized = untrustedInput.substring(6);
+        }
+        label.setText(sanitized);
+    }
+}
+✅ Secure (Disabling Swing HTML Features & File Isolation)
+Explicitly disable Swing HTML rendering capabilities on the component instance using the html.disable system client property, and scale down privileges prior to parsing graphic resource files.
+
+Java
+package com.app.gui;
+
+import java.lang.Boolean;
+import javax.swing.JLabel;
+
+public class PanelView {
+    public void updateUserLabelSecure(JLabel label, String untrustedInput) {
+        // SECURE: Set the exact boolean property to permanently turn off component HTML parsing
+        label.putClientProperty("html.disable", Boolean.TRUE);
+        label.setText(untrustedInput);
+    }
+}
+
+---
+
+### File 17: Interpreting Untrusted Code, Reflection, and JNDI Filters (`INJECT-8`)
+
+```markdown
+---
+id: JAVA-INJECT-08
+title: Restricting JNDI Lookups and Untrusted Script Interpretation
+category: Remote Code Execution / Insecure Deserialization
+severity_hint: Critical
+cwe: [CWE-502, CWE-74, CWE-917]
+java_versions: "All Versions (Strict Modern Standard for JNDI)"
+---
+
+# Restricting JNDI Lookups and Untrusted Script Interpretation
+
+## Overview
+Loading external scripts (`javax.script`), executing unvalidated JavaBean serializations, or performing JNDI lookups with user-controlled strings enables Remote Code Execution (RCE) via remote directory registries (LDAP, RMI). Modern Java restricts remote class loading by default, but internal classpath gadgets can still be abused.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Unchecked JNDI Lookups & Dynamic Scripting)
+Performing unvalidated JNDI queries with untrusted target paths or directly executing raw user strings via scripting engines.
+```java
+package com.app.jndi;
+
+import javax.naming.InitialContext;
+import javax.naming.Context;
+
+public class DirectoryConnector {
+    // VULNERABLE: An attacker passing an "ldap://..." target can cause malicious class instantiation (RCE)
+    public Object lookupUnsafe(String userQuery) throws Exception {
+        Context ctx = new InitialContext();
+        return ctx.lookup(userQuery);
+    }
+}
+⚠️ Flawed Attempt (String Check for JNDI Schemes)
+Blocking the obvious ldap: and rmi: schemas before performing lookups, which fails to block other lookups such as local filesystem resolving schemes or nested references.
+
+Java
+package com.app.jndi;
+
+import javax.naming.InitialContext;
+import javax.naming.Context;
+
+public class DirectoryConnector {
+    public Object lookupFlawed(String userQuery) throws Exception {
+        // FLAWED: String checks can be bypassed with case-folding variations (e.g., "lDaP:")
+        // or complex nested naming provider configurations.
+        if (userQuery.toLowerCase().startsWith("ldap:") || userQuery.toLowerCase().startsWith("rmi:")) {
+            throw new SecurityException("Unauthorized scheme detected");
+        }
+        Context ctx = new InitialContext();
+        return ctx.lookup(userQuery);
+    }
+}
+✅ Secure (Strict Schema Restrictions & JNDI Filter Settings)
+Completely disable runtime code loading from remote repositories, restrict allowable lookup endpoints using static directories, and enforce robust filter constraints via JVM properties.
+
+Java
+package com.app.jndi;
+
+import javax.naming.InitialContext;
+import javax.naming.Context;
+import java.util.Set;
+
+public class DirectoryConnector {
+    // SECURE: Enforce an explicit whitelist of permitted local directory naming records
+    private static final Set<String> PERMITTED_RECORDS = Set.of("java:comp/env/jdbc/MyDb", "java:comp/env/mail/Session");
+
+    public Object lookupSecure(String userQuery) throws Exception {
+        if (!PERMITTED_RECORDS.contains(userQuery)) {
+            throw new SecurityException("Access to directory lookup denied: " + userQuery);
+        }
+
+        Context ctx = new InitialContext();
+        return ctx.lookup(userQuery);
+    }
+}
+
+---
+
+### File 18: Sanitizing Exceptional Floating-Point Boundaries (`INJECT-9`)
+
+```markdown
+---
+id: JAVA-INJECT-09
+title: Sanitizing Exceptional Floating-Point Values
+category: Numeric Processing / Validation Bypass
+severity_hint: Medium
+cwe: [CWE-20, CWE-682]
+java_versions: "All Versions (Always Applicable)"
+---
+
+# Sanitizing Exceptional Floating-Point Values
+
+## Overview
+Unchecked external strings parsed as floats or doubles can introduce special values like `Double.NaN` (Not a Number) or `Double.POSITIVE_INFINITY`. Standard comparisons against `NaN` using equality operators (such as `==`) always return `false`. When cast to integers, these values degrade into unexpected numbers (`NaN` becomes `0`; `Infinity` becomes `Integer.MAX_VALUE`), which can bypass authorization and financial thresholds.
+
+---
+
+## Code Triad
+
+### ❌ Insecure (Direct Parsing without Boundary Validation)
+Parsing a user-supplied floating point input and integrating it directly into processing routines.
+```java
+package com.app.numeric;
+
+public class TransactionProcessor {
+    // VULNERABLE: If user value is "NaN", comparing (amount > 0) evaluates to false, 
+    // but arithmetic operations and casting will yield unexpected, bypassed outcomes.
+    public void processPaymentUnsafe(String userAmount, Account acc) {
+        double amount = Double.parseDouble(userAmount);
+        if (amount <= 0.0) {
+            throw new IllegalArgumentException("Invalid amount");
+        }
+        // Proceeding with transaction
+        acc.adjustBalance(-amount);
+    }
+}
+⚠️ Flawed Attempt (Direct Equality Comparison for NaN)
+Attempting to check for NaN values using the standard Java equality operator (==).
+
+Java
+package com.app.numeric;
+
+public class TransactionProcessor {
+    public void processPaymentFlawed(String userAmount, Account acc) {
+        double amount = Double.parseDouble(userAmount);
+        // FLAWED: According to IEEE 754 standards, (amount == Double.NaN) is ALWAYS false!
+        // This check will never trigger even if 'amount' is indeed NaN.
+        if (amount == Double.NaN || amount == Double.POSITIVE_INFINITY) {
+            throw new IllegalArgumentException("Invalid numeric value.");
+        }
+        acc.adjustBalance(-amount);
+    }
+}
+✅ Secure (Sanitizing via isNaN and isInfinite Checking)
+Utilize the built-in helper methods Double.isNaN() and Double.isInfinite() to thoroughly validate floating-point bounds before allowing any business logic execution.
+
+Java
+package com.app.numeric;
+
+public class TransactionProcessor {
+    public void processPaymentSecure(String userAmount, Account acc) {
+        double amount = Double.parseDouble(userAmount);
+
+        // SECURE: Thoroughly validate exceptional IEEE 754 floating-point cases
+        if (Double.isNaN(amount) || Double.isInfinite(amount)) {
+            throw new IllegalArgumentException("Exceptional floating-point value rejected.");
+        }
+
+        // SECURE: Enforce expected business domain limits
+        if (amount <= 0.0 || amount > 10000.0) {
+            throw new IllegalArgumentException("Transaction amount out of valid bounds.");
+        }
+
+        acc.adjustBalance(-amount);
+    }
+}

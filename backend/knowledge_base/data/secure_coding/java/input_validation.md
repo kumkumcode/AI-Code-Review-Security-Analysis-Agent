@@ -1,63 +1,179 @@
-Guideline 5-1 / INPUT-1: Validate inputs
-Input from untrusted sources must be validated before use. Maliciously crafted inputs may cause problems, whether coming through method arguments or external streams. Examples include overflow of integer values and directory traversal attacks by including "../" sequences in filenames. Ease-of-use features should be separated from programmatic interfaces.
+---
+id: JAVA-INPUT-01-02-04
+title: Input Validation, Defensive Copying, and State Checking
+category: Input Validation & Defensive Copying
+severity_hint: Critical
+cwe: [CWE-20, CWE-367, CWE-374, CWE-437]
+java_versions: "All Versions (Always Applicable)"
+---
 
-It may also be necessary to perform validation on input more than once. Performing validation early can be beneficial, as it will reject invalid input sooner and reduce exposure to malformed data. However, validating the input immediately prior to using it for a security-sensitive task will cover any modifications made since it was previously validated, and also allows for validation to be more specific to the context of its use. Earlier validation may not be effective for the current task, as it could have been performed by another part of the application or system, using different assumptions about the context or intended use of the input.
+# Input Validation, Defensive Copying, and State Checking
 
-Whenever possible, processing untrusted input should be avoided. For example, consuming a JAR file from an untrusted source might allow an attacker to inject malicious code or data into the system, causing misbehavior, excessive resource consumption, or other problems.
+## Overview
+All input from untrusted sources must be validated before use. Critically, to prevent Time-of-Check to Time-of-Use (TOCTOU) exploits and state changes after verification, **defensive copying of mutable objects must occur before input validation**. Furthermore, when dealing with callbacks or upcalls to untrusted objects, their output must be treated as untrusted input and thoroughly re-validated. Never rely on external constructor side-effects to sanitize inputs; always use the instantiated object state directly.
 
-Note that input validation must occur after any defensive copying of that input (see Guideline 6-2).
+---
 
+## Code Triad
 
-Guideline 5-2 / INPUT-2: Validate output from untrusted objects as input
-In general method arguments should be validated but not return values. However, in the case of an upcall (invoking a method of higher level code) the returned value should be validated. Likewise, an object only reachable as an implementation of an upcall need not validate its inputs.
+### ❌ Insecure (Validation Before Copying & Reference Leakage)
+Validating a mutable reference first, allowing a concurrent thread to swap its state immediately after the check but prior to execution.
+```java
+package com.app.input;
 
-A subtle example would be Class objects returned by ClassLoaders. Untrusted code might control ClassLoader instances that get passed as arguments, or that are set in Thread context. Thus, when calling methods on ClassLoaders not many assumptions can be made. Multiple invocations of ClassLoader.loadClass() are not guaranteed to return the same Class instance or definition, which could cause TOCTOU issues.
+import java.util.Date;
 
+public class EventScheduler {
+    private Date scheduledTime;
 
-Guideline 5-3 / INPUT-3: Define wrappers around native methods
-Java code is subject to runtime checks for type, array bounds, and library usage. Native code, on the other hand, is generally not. While pure Java code is effectively immune to traditional buffer overflow attacks, native methods are not. To offer some of these protections during the invocation of native code, do not declare a native method public. Instead, declare it private and expose the functionality through a public Java-based wrapper method. A wrapper can safely perform any necessary input validation prior to the invocation of the native method:
-
-Copy
-Copied to ClipboardError: Could not Copy
-public final class NativeMethodWrapper {
-
-    // private native method
-    private native void nativeOperation(byte[] data, int offset,
-                                        int len);
-
-    // wrapper method performs checks
-    public void doOperation(byte[] data, int offset, int len) {
-        // copy mutable input
-        data = data.clone();
-
-        // validate input
-        // Note offset+len would be subject to integer overflow.
-        // For instance if offset = 1 and len = Integer.MAX_VALUE,
-        //   then offset+len == Integer.MIN_VALUE which is lower
-        //   than data.length.
-        // Further,
-        //   loops of the form
-        //       for (int i=offset; i<offset+len; ++i) { ... }
-        //   would not throw an exception or cause native code to
-        //   crash.
-
-        if (offset < 0 || len < 0 || offset > data.length - len) {
-              throw new IllegalArgumentException();
+    // VULNERABLE: Validates first, then saves reference. 
+    // Another thread can modify 'userDate' after check (TOCTOU).
+    public void scheduleEventUnsafe(Date userDate) {
+        if (userDate.before(new Date())) {
+            throw new IllegalArgumentException("Cannot schedule events in the past.");
         }
+        this.scheduledTime = userDate; 
+    }
+}
+⚠️ Flawed Attempt (Relying on External Constructor Sanitization)
+Using a standard validator or parser object but assuming the original input string was safely modified in place, or trusting that an upcall output is automatically safe.
 
-        nativeOperation(data, offset, len);
+Java
+package com.app.input;
+
+import java.net.URI;
+
+public class Downloader {
+    // FLAWED: Constructs URI but does not use the parsed URI object. 
+    // If the URI constructor silently tolerates or escapes certain characters, 
+    // the raw 'urlString' remains unsanitized and dangerous when used directly.
+    public void downloadFlawed(String urlString) throws Exception {
+        new URI(urlString); // Checks syntax but discards the result object
+        
+        // VULNERABLE: Using raw, un-escaped input instead of URI object representation
+        executeHttpCall(urlString); 
+    }
+
+    private void executeHttpCall(String url) {}
+}
+✅ Secure (Defensive Copying first, then Strict Validation)
+Always clone or copy mutable inputs first, perform validation on the isolated clone, and always reference the newly created object rather than raw input strings.
+
+Java
+package com.app.input;
+
+import java.net.URI;
+import java.util.Date;
+import java.util.Objects;
+
+public final class EventSchedulerSecure {
+    private final Date scheduledTime;
+
+    public EventSchedulerSecure(Date userDate) {
+        // SECURE: Perform defensive copy FIRST
+        Date dateCopy = new Date(userDate.getTime());
+
+        // SECURE: Perform validation on the copy
+        if (dateCopy.before(new Date())) {
+            throw new IllegalArgumentException("Cannot schedule events in the past.");
+        }
+        this.scheduledTime = dateCopy;
+    }
+
+    // SECURE: Always use returned, fully parsed API object representations
+    public void downloadSecure(String urlString) throws Exception {
+        Objects.requireNonNull(urlString, "URL cannot be null");
+        
+        // SECURE: Rely on the verified output of the parser rather than the raw string
+        URI verifiedUri = new URI(urlString).normalize();
+        
+        executeHttpCall(verifiedUri);
+    }
+
+    private void executeHttpCall(URI uri) {
+        // Use verified URI properties safely
     }
 }
 
-Guideline 5-4 / INPUT-4: Verify API behavior related to input validation
-Do not rely on an API for input validation without first verifying through documentation and testing that it performs necessary validation for the given context. For example, if documentation states that a class or method expects input to be in a specific syntax (e.g., according to a documented standard), do not assume that the called method/constructor will throw an exception if the input does not strictly adhere to that syntax, unless the documentation explicitly specifies that behavior. Verifying the API behavior is especially important when validating untrusted data.
+---
 
-If a constructor (or method that returns an object) is relied upon to perform input validation, be sure to use the created/returned object and not the original input passed to it. Some constructors or methods may not outright reject invalid input, and may instead filter, escape, or encode the input used to construct the object. Therefore, even if the object has been safely constructed, the input may not be safe in its original form. Additionally, some classes may not validate the input until it is used, which may occur later (e.g., when a method is called on the created object).
+### File 20: Safe Native Method Wrappers (`INPUT-3`)
 
-Additional steps may be required when using an API for input validation. It might be necessary to perform context-specific checks (such as range checks, allow/block list checks, etc.) in addition to the syntactic validation performed by the API. The caller may also need to sanitize certain data, such as meta-characters that identify macros or have other special meaning in the given context, prior to passing the data to the API. It may not be sufficient to use lower-level APIs for input validation, as they often provide additional flexibility that could be problematic in a higher-level application context.
+```markdown
+---
+id: JAVA-INPUT-03
+title: Safe Native Method Wrappers and Integer Overflow Guarding
+category: Native Code Boundaries / Buffer Overflow
+severity_hint: High
+cwe: [CWE-119, CWE-190]
+java_versions: "All Versions (Always Applicable)"
+---
 
-It is also necessary to account for any discrepancies in behavior between different APIs when using the same data across them. Different implementations may not parse certain types of data (URLs, file paths, etc.) the same way, especially when ambiguities exist in related specifications. When using the implementations together, these discrepancies often lead to security issues. Therefore, it is important to either verify that the implementations handle the given data type consistently, or make sure that additional validation or other steps are taken to account for the discrepancies. In some cases, it may be better not to use multiple APIs when processing data in order to avoid these discrepancies or inconsistent behavior.
+# Safe Native Method Wrappers and Integer Overflow Guarding
 
-One situation where issues often arise is parsing ZIP and JAR files. These file types can contain a number of discrepancies, such as conflicting information about the same entry, missing entries, or duplicate entries. It is also possible for signed JARs to contain unsigned entries, or to have subsets of entries signed by different signers. Depending on the situation, it may be necessary to detect these cases and reject the input, notify the user, or perform other actions.
+## Overview
+Java is memory-safe, but native methods (JNI/Panama API) are not. Buffer overflow, memory corruption, and boundary errors can crash the entire JVM or allow arbitrary code execution. Native methods must **never** be declared `public`. They must be kept `private` and wrapped within a final Java class that performs defensive copying, strict bounds checks, and guards against integer overflow.
 
-When accessing ZIP/JAR files programmatically, it is important to understand how the APIs being used process the input. If multiple APIs are being used, and they process the input using different approaches, then inconsistent behavior between the APIs can lead to issues. Therefore, it is often safer to always use the same API in order to avoid those inconsistencies.
+---
+
+## Code Triad
+
+### ❌ Insecure (Public Native Methods)
+Exposing native methods directly to callers, allowing bypass of array boundary checks, buffer sizes, and type rules.
+```java
+package com.app.jni;
+
+public class NativeBridge {
+    // VULNERABLE: Direct access to native boundary. 
+    // Callers can pass a negative length or an offset causing immediate buffer overflow.
+    public native void writeSharedBuffer(byte[] src, int offset, int length);
+}
+⚠️ Flawed Attempt (Wrapper without Integer Overflow Protection)
+Providing a Java wrapper but using simple addition (offset + length > src.length) to validate bounds, which can be bypassed via integer overflow.
+
+Java
+package com.app.jni;
+
+public final class NativeBridgeFlawed {
+    private native void writeSharedBuffer(byte[] src, int offset, int length);
+
+    public void writeBuffer(byte[] src, int offset, int length) {
+        byte[] copy = src.clone();
+        
+        // FLAWED: If offset = 1 and length = Integer.MAX_VALUE, 
+        // offset + length overflows to Integer.MIN_VALUE (which is less than copy.length),
+        // bypassing this validation completely.
+        if (offset + length > copy.length) {
+            throw new IndexOutOfBoundsException("Invalid bounds");
+        }
+        writeSharedBuffer(copy, offset, length);
+    }
+}
+✅ Secure (Private Native Methods with Safe Safe Math Bounds Checking)
+Keep the native interface private. Implement a final public wrapper that executes clone operations first and checks boundaries using robust arithmetic equations that are immune to integer overflow.
+
+Java
+package com.app.jni;
+
+import java.util.Objects;
+
+public final class NativeBridgeSecure {
+
+    // SECURE: Native method is completely inaccessible outside this class boundary
+    private native void writeSharedBuffer(byte[] src, int offset, int length);
+
+    public void writeBuffer(byte[] src, int offset, int length) {
+        Objects.requireNonNull(src, "Source buffer cannot be null");
+        
+        // SECURE: Deep copy mutable array state before applying constraints
+        byte[] bufferCopy = src.clone();
+
+        // SECURE: Bounds checking using subtraction logic to prevent integer overflow.
+        // E.g., checks if offset/length are negative, and ensures they do not exceed bounds.
+        if (offset < 0 || length < 0 || offset > bufferCopy.length - length) {
+            throw new IndexOutOfBoundsException("Buffer write bounds violation.");
+        }
+
+        writeSharedBuffer(bufferCopy, offset, length);
+    }
+}

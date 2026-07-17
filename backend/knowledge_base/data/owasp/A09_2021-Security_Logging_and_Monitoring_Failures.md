@@ -1,146 +1,166 @@
-# A09:2021 – Security Logging and Monitoring Failures    ![icon](assets/TOP_10_Icons_Final_Security_Logging_and_Monitoring_Failures.png){: style="height:80px;width:80px" align="right"}
+---
+id: OWASP-2021-A09
+title: Security Logging and Monitoring Failures
+category: Security Logging and Monitoring Failures
+severity_hint: Medium
+languages: [python, java]
+cwes: [CWE-117, CWE-223, CWE-532, CWE-778]
+related_guidelines: [LOGGING-1, MONITORING-1]
+---
+
+# A09:2021 – Security Logging and Monitoring Failures
 
 ## Factors
 
 | CWEs Mapped | Max Incidence Rate | Avg Incidence Rate | Avg Weighted Exploit | Avg Weighted Impact | Max Coverage | Avg Coverage | Total Occurrences | Total CVEs |
 |:-------------:|:--------------------:|:--------------------:|:--------------:|:--------------:|:----------------------:|:---------------------:|:-------------------:|:------------:|
-| 4           | 19.23%             | 6.51%              | 6.87                 | 4.99                | 53.67%       | 39.97%       | 53,615            | 242        |
+| 4 | 19.23% | 6.51% | 6.87 | 4.99 | 53.67% | 39.97% | 53,615 | 242 |
 
 ## Overview
+Security Logging and Monitoring Failures prevent organizations from detecting, escalating, and responding to active breaches. Without rapid and accurate alerts, compromises can remain completely unnoticed for months or years. This category encompasses insufficient transaction trails, raw sensitive data exposure in logs, and log injection vulnerabilities.
 
-Security logging and monitoring came from the Top 10 community survey (#3), up
-slightly from the tenth position in the OWASP Top 10 2017. Logging and
-monitoring can be challenging to test, often involving interviews or
-asking if attacks were detected during a penetration test. There isn't
-much CVE/CVSS data for this category, but detecting and responding to
-breaches is critical. Still, it can be very impactful for accountability, visibility,
-incident alerting, and forensics. This category expands beyond *CWE-778
-Insufficient Logging* to include *CWE-117 Improper Output Neutralization
-for Logs*, *CWE-223 Omission of Security-relevant Information*, and
-*CWE-532* *Insertion of Sensitive Information into Log File*.
+### 🛡️ Structured Logging & Detection Pipeline
+┌─────────────────────────────────────────────────────────────┐
+│                     Application Event                       │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 1. NEUTRALIZE INPUTS (Strip CRLF characters/line-breaks to  │
+│    thwart Log Injection / Forge attacks)                    │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. REDACT SECRETS (Never write passwords, tokens, or PII)   │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. CENTRALIZED INGESTION (Stream securely to read-only,     │
+│    append-only SIEM with active threshold alerts)           │
+└─────────────────────────────────────────────────────────────┘
 
-## Description 
 
-Returning to the OWASP Top 10 2021, this category is to help detect,
-escalate, and respond to active breaches. Without logging and
-monitoring, breaches cannot be detected. Insufficient logging,
-detection, monitoring, and active response occurs any time:
+---
 
--   Auditable events, such as logins, failed logins, and high-value
-    transactions, are not logged.
+## Modern Python Examples
 
--   Warnings and errors generate no, inadequate, or unclear log
-    messages.
+### ❌ Insecure Python Logging (CWE-117: Log Injection & Missing Audits)
+Failing to record suspicious events, or writing raw unvalidated inputs directly to logs, allows an attacker to inject carriage returns and line feeds (CRLF) to forge log entries or execute log-injection exploits.
+```python
+import logging
+from fastapi import FastAPI, Request, HTTPException
 
--   Logs of applications and APIs are not monitored for suspicious
-    activity.
+app = FastAPI()
+logger = logging.getLogger("auth")
 
--   Logs are only stored locally.
+@app.post("/login")
+async def login(request: Request):
+    data = await request.json()
+    username = data.get("username")
+    password = data.get("password")
+    
+    # 1. VULNERABLE: Direct login validation failure is not recorded, ignoring audits
+    if not verify_credentials(username, password):
+        return {"error": "Invalid credentials"}
+        
+    # 2. VULNERABLE: Raw unsanitized username logged directly, allowing log-forgery injection
+    # If the username contains "\n[INFO] User admin successfully logged in", the log is falsified.
+    logger.warning(f"Failed attempt from username: {username}")
+    raise HTTPException(status_code=401, detail="Unauthorized")
+✅ Secure Python Logging (CRLF Neutralization & Context Retention)
+Sanitizing log content and logging structured authentication context securely without recording credentials.
 
--   Appropriate alerting thresholds and response escalation processes
-    are not in place or effective.
+Python
+import logging
+from fastapi import FastAPI, Request, HTTPException, status
 
--   Penetration testing and scans by dynamic application security testing (DAST) tools (such as OWASP ZAP) do
-    not trigger alerts.
+app = FastAPI()
+logger = logging.getLogger("secure_auth")
 
--   The application cannot detect, escalate, or alert for active attacks
-    in real-time or near real-time.
+def sanitize_for_log(input_string: str) -> str:
+    # SECURE: Strip out dangerous control characters and newlines to prevent log injection
+    return input_string.replace("\r", "").replace("\n", "")[:100]
 
--   You are vulnerable to information leakage by making logging and alerting
-events visible to a user or an attacker (see [A01:2021-Broken Access Control](A01_2021-Broken_Access_Control.md)).
+@app.post("/login")
+async def login(request: Request):
+    data = await request.json()
+    username = data.get("username", "")
+    password = data.get("password", "")
+    
+    if not verify_credentials(username, password):
+        # SECURE: Sanitize untrusted variables and log failures with explicit IP attributes
+        safe_username = sanitize_for_log(username)
+        logger.warning(
+            "Authentication failed | identity=%s | source=%s | status=unauthorized",
+            safe_username,
+            request.client.host
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password"
+        )
+    return {"status": "authenticated"}
+Modern Java Examples
+❌ Insecure Java Logging (CWE-532: Logging Sensitive Data & Credentials)
+Concatenating strings with credentials or personal keys inside logger methods writes unencrypted critical credentials directly to files or logging networks.
 
--   You are vulnerable to injections or
-    attacks on the logging or monitoring systems if log data is not correctly encoded.
+Java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-## How to Prevent
+public class SecurityController {
+    private static final Logger log = LoggerFactory.getLogger(SecurityController.class);
 
-Developers should implement some or all the following controls, 
-depending on the risk of the application:
+    public void processLogin(String username, String password) {
+        // VULNERABLE: Logging plaintext passwords exposes credentials to anyone with log access
+        log.info("User login request: user=" + username + " password=" + password);
+    }
+}
+✅ Secure Java Logging (Parameterization & Sensitive Data Redaction)
+Strictly omitting sensitive data and implementing robust logging parameters to prevent both leakage and log injection.
 
--   Ensure all login, access control, and server-side input validation
-    failures can be logged with sufficient user context to identify
-    suspicious or malicious accounts and held for enough time to allow
-    delayed forensic analysis.
+Java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
--   Ensure that logs are generated in a format that log management
-    solutions can easily consume.
+public class SecurityController {
+    private static final Logger log = LoggerFactory.getLogger(SecurityController.class);
 
--   Ensure log data is encoded correctly to prevent injections or
-    attacks on the logging or monitoring systems.
+    public void processLogin(String username, String password) {
+        // SECURE: Log only non-sensitive identity metadata, utilizing parameterized formatting
+        // This mitigates string concatenation overhead and reduces log-injection risks
+        String sanitizedUser = username.replaceAll("[\r\n]", "");
+        log.info("User login attempt initiated | username={}", sanitizedUser);
+    }
+}
+Real-World Edge Cases & Advanced Vulnerabilities
+1. Log Forgery and Line-Injection Attacks
+If an attacker sends custom newline sequences (\r\n or %0D%0A) in a request payload, and that payload is written to a standard file log, the output file splits into fake entries.
 
--   Ensure high-value transactions have an audit trail with integrity
-    controls to prevent tampering or deletion, such as append-only
-    database tables or similar.
+The Flaw: Trusting user inputs (e.g., query params, user agents, cookies) within plain-text logger statements.
 
--   DevSecOps teams should establish effective monitoring and alerting
-    such that suspicious activities are detected and responded to
-    quickly.
+Remediation: Always strip carriage returns and line feeds, or format your system to output structured JSON logs, which treat newlines safely as escaped characters (\n).
 
--   Establish or adopt an incident response and recovery plan, such as
-    National Institute of Standards and Technology (NIST) 800-61r2 or later.
+2. Failure to Log High-Value Transactions and API Key Usage
+Recording basic system errors but failing to audit privilege escalations, financial adjustments, or access token creations.
 
-There are commercial and open-source application protection frameworks
-such as the OWASP ModSecurity Core Rule Set, and open-source log
-correlation software, such as the Elasticsearch, Logstash, Kibana (ELK)
-stack, that feature custom dashboards and alerting.
+The Flaw: High-privilege actions occur silently, making post-incident forensics impossible.
 
-## Example Attack Scenarios
+Remediation: Enforce a strict audit policy requiring cryptographic logging or tamper-evident trails (e.g., database constraints, ledger logging) for all key business actions.
 
-**Scenario #1:** A children's health plan provider's website operator
-couldn't detect a breach due to a lack of monitoring and logging. An
-external party informed the health plan provider that an attacker had
-accessed and modified thousands of sensitive health records of more than
-3.5 million children. A post-incident review found that the website
-developers had not addressed significant vulnerabilities. As there was
-no logging or monitoring of the system, the data breach could have been
-in progress since 2013, a period of more than seven years.
+How to Prevent
+Audit Security Events: Log all authentication, authorization, validation, and authorization failures with rich, sanitized context.
 
-**Scenario #2:** A major Indian airline had a data breach involving more
-than ten years' worth of personal data of millions of passengers,
-including passport and credit card data. The data breach occurred at a
-third-party cloud hosting provider, who notified the airline of the
-breach after some time.
+Neutralize Log Inputs: Strip out newline characters and control symbols from all user-supplied variables before logging them.
 
-**Scenario #3:** A major European airline suffered a GDPR reportable
-breach. The breach was reportedly caused by payment application security
-vulnerabilities exploited by attackers, who harvested more than 400,000
-customer payment records. The airline was fined 20 million pounds as a
-result by the privacy regulator.
+Redact Sensitive Information: Never log raw credentials, session identifiers, security tokens, full payment details, or personal identifiable information (PII).
 
-## References
+Stream Externally: Never store logs exclusively in local storage. Ship logs to a centralized, read-only SIEM with automated real-world thresholds and active monitoring configurations.
 
--   [OWASP Proactive Controls: Implement Logging and
-    Monitoring](https://top10proactive.owasp.org/archive/2024/the-top-10/c9-security-logging-and-monitoring/)
+References
+OWASP Cheat Sheet: Logging
 
--   [OWASP Application Security Verification Standard: V7 Logging and
-    Monitoring](https://owasp.org/www-project-application-security-verification-standard)
+OWASP ASVS: V7 Logging and Monitoring
 
--   [OWASP Testing Guide: Testing for Detailed Error
-    Code](https://owasp.org/www-project-web-security-testing-guide/v41/4-Web_Application_Security_Testing/08-Testing_for_Error_Handling/01-Testing_for_Error_Code)
+NIST SP 800-61r2: Computer Security Incident Handling Guide
 
--   [OWASP Cheat Sheet:
-    Application Logging Vocabulary](https://cheatsheetseries.owasp.org/cheatsheets/Application_Logging_Vocabulary_Cheat_Sheet.html)
-
--   [OWASP Cheat Sheet:
-    Logging](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)
-
--   [Data Integrity: Recovering from Ransomware and Other Destructive
-    Events](https://csrc.nist.gov/publications/detail/sp/1800-11/final)
-
--   [Data Integrity: Identifying and Protecting Assets Against
-    Ransomware and Other Destructive
-    Events](https://csrc.nist.gov/publications/detail/sp/1800-25/final)
-
--   [Data Integrity: Detecting and Responding to Ransomware and Other
-    Destructive
-    Events](https://csrc.nist.gov/publications/detail/sp/1800-26/final)
-
-## List of Mapped CWEs
-
-[CWE-117 Improper Output Neutralization for Logs](https://cwe.mitre.org/data/definitions/117.html)
-
-[CWE-223 Omission of Security-relevant Information](https://cwe.mitre.org/data/definitions/223.html)
-
-[CWE-532 Insertion of Sensitive Information into Log File](https://cwe.mitre.org/data/definitions/532.html)
-
-[CWE-778 Insufficient Logging](https://cwe.mitre.org/data/definitions/778.html)
+OWASP Cheat Sheet: Application Logging Vocabulary

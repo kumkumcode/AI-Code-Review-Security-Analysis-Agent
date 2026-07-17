@@ -1,123 +1,167 @@
-# A08:2021 – Software and Data Integrity Failures    ![icon](assets/TOP_10_Icons_Final_Software_and_Data_Integrity_Failures.png){: style="height:80px;width:80px" align="right"}
+Copy and paste this entire code block directly into your main A08_2021-Software_and_Data_Integrity_Failures.md file:
+
+Markdown
+---
+id: OWASP-2021-A08
+title: Software and Data Integrity Failures
+category: Software and Data Integrity Failures
+severity_hint: High
+languages: [python, java]
+cwes: [CWE-345, CWE-353, CWE-426, CWE-494, CWE-502, CWE-565, CWE-784, CWE-829, CWE-830, CWE-915]
+related_guidelines: [INTEGRITY-1, PIPELINE-1]
+---
+
+# A08:2021 – Software and Data Integrity Failures
 
 ## Factors
 
 | CWEs Mapped | Max Incidence Rate | Avg Incidence Rate | Avg Weighted Exploit | Avg Weighted Impact | Max Coverage | Avg Coverage | Total Occurrences | Total CVEs |
 |:-------------:|:--------------------:|:--------------------:|:--------------:|:--------------:|:----------------------:|:---------------------:|:-------------------:|:------------:|
-| 10          | 16.67%             | 2.05%              | 6.94                 | 7.94                | 75.04%       | 45.35%       | 47,972            | 1,152      |
+| 10 | 16.67% | 2.05% | 6.94 | 7.94 | 75.04% | 45.35% | 47,972 | 1,152 |
 
 ## Overview
+Software and data integrity failures occur when code, application dependencies, update configurations, or serialized objects are processed without verifying their authenticity and integrity. One of the most severe manifestations is insecure deserialization, where arbitrary input structures can trick interpreters into executing system-level commands.
 
-A new category for 2021 focuses on making assumptions related to
-software updates, critical data, and CI/CD pipelines without verifying
-integrity. One of the highest weighted impacts from 
-Common Vulnerability and Exposures/Common Vulnerability Scoring System (CVE/CVSS) 
-data. Notable Common Weakness Enumerations (CWEs) include
-*CWE-829: Inclusion of Functionality from Untrusted Control Sphere*,
-*CWE-494: Download of Code Without Integrity Check*, and 
-*CWE-502: Deserialization of Untrusted Data*.
+### 🛡️ Secure Deserialization & Pipeline Integrity
+┌─────────────────────────────────────────────────────────────┐
+│                      Untrusted Byte Stream                  │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 1. DATA REJECTION (Avoid binary formats like pickle or      │
+│    native Java serialization completely)                    │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. SCHEMA-BASED PARSING (Deserialize only flat, structured  │
+│    formats like JSON with strict, strongly typed classes)   │
+└──────────────┬──────────────────────────────────────────────┘
+▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. ENFORCE CRYPTOGRAPHIC SIGNATURES (HMAC-SHA256 verification│
+│    for transient state objects before processing)           │
+└─────────────────────────────────────────────────────────────┘
 
-## Description 
 
-Software and data integrity failures relate to code and infrastructure
-that does not protect against integrity violations. An example of this is where an application relies upon plugins, libraries, or modules from untrusted sources, repositories, and content
-delivery networks (CDNs). An insecure CI/CD pipeline can introduce the
-potential for unauthorized access, malicious code, or system compromise.
-Lastly, many applications now include auto-update functionality, where
-updates are downloaded without sufficient integrity verification and
-applied to the previously trusted application. Attackers could
-potentially upload their own updates to be distributed and run on all
-installations. Another example is where
-objects or data are encoded or serialized into a structure that an
-attacker can see and modify is vulnerable to insecure deserialization.
+---
 
-## How to Prevent
+## Modern Python Examples
 
--   Use digital signatures or similar mechanisms to verify the software or data is from the expected source and has not been altered.
+### ❌ Insecure Python Deserialization (CWE-502: Python `pickle`)
+The Python `pickle` module builds arbitrary object graphs. If the payload is modified to return a class with a custom `__reduce__` method, system command execution occurs immediately upon parsing.
+```python
+import pickle
+from fastapi import FastAPI, Request, HTTPException
 
--   Ensure libraries and dependencies, such as npm or Maven, are
-    consuming trusted repositories. If you have a higher risk profile, consider hosting an internal known-good repository that's vetted.
+app = FastAPI()
 
--   Ensure that a software supply chain security tool, such as OWASP
-    Dependency Check or OWASP CycloneDX, is used to verify that
-    components do not contain known vulnerabilities
+@app.post("/restore-session")
+async def restore_session(request: Request):
+    body = await request.body()
+    # VULNERABLE: Direct deserialization of untrusted binary streams
+    # An attacker can send a serialized payload that executes system commands
+    session_data = pickle.loads(body)
+    return {"status": "restored", "user": session_data.get("username")}
+✅ Secure Python Deserialization (Structured JSON)
+By migrating away from arbitrary binary object graphs and using plain-text, statically typed JSON models, parsing is restricted strictly to simple data primitives.
 
--   Ensure that there is a review process for code and configuration changes to minimize the chance that malicious code or configuration could be introduced into your software pipeline.
+Python
+import json
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel, ValidationError
 
--   Ensure that your CI/CD pipeline has proper segregation, configuration, and access
-    control to ensure the integrity of the code flowing through the
-    build and deploy processes.
+app = FastAPI()
 
--   Ensure that unsigned or unencrypted serialized data is not sent to
-    untrusted clients without some form of integrity check or digital
-    signature to detect tampering or replay of the serialized data
+class SessionModel(BaseModel):
+    username: str
+    session_id: str
 
-## Example Attack Scenarios
+@app.post("/restore-session")
+async def restore_session(request: Request):
+    body = await request.body()
+    try:
+        # SECURE: Parse raw payload strictly as plain-text, static JSON structure
+        decoded_string = body.decode("utf-8")
+        data = json.loads(decoded_string)
+        
+        # Enforce validation schemas on incoming keys
+        session_data = SessionModel(**data)
+        return {"status": "restored", "user": session_data.username}
+    except (json.JSONDecodeError, ValidationError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid session payload")
+Modern Java Examples
+❌ Insecure Java Deserialization (CWE-502: Native ObjectInputStream)
+Native Java serialization is notoriously dangerous when used on untrusted streams. Attackers can exploit gadgets in the application's classpath to achieve remote code execution (RCE).
 
-**Scenario #1 Update without signing:** Many home routers, set-top
-boxes, device firmware, and others do not verify updates via signed
-firmware. Unsigned firmware is a growing target for attackers and is
-expected to only get worse. This is a major concern as many times there
-is no mechanism to remediate other than to fix in a future version and
-wait for previous versions to age out.
+Java
+import java.io.ObjectInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 
-**Scenario #2 SolarWinds malicious update**: Nation-states have been
-known to attack update mechanisms, with a recent notable attack being
-the SolarWinds Orion attack. The company that develops the software had
-secure build and update integrity processes. Still, these were able to
-be subverted, and for several months, the firm distributed a highly
-targeted malicious update to more than 18,000 organizations, of which
-around 100 or so were affected. This is one of the most far-reaching and
-most significant breaches of this nature in history.
+public class SessionService {
+    public Object deserializeSession(byte[] rawData) throws IOException, ClassNotFoundException {
+        // VULNERABLE: Native Java deserialization is highly vulnerable to gadget-chain RCE
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(rawData);
+             ObjectInputStream ois = new ObjectInputStream(bais)) {
+            return ois.readObject();
+        }
+    }
+}
+✅ Secure Java Deserialization (Explicit JSON Model Mapping)
+Instead of deserializing complex class hierachies from binary code streams, map incoming payloads into strict Data Transfer Objects (DTOs) using Jackson or Gson.
 
-**Scenario #3 Insecure Deserialization:** A React application calls a
-set of Spring Boot microservices. Being functional programmers, they
-tried to ensure that their code is immutable. The solution they came up
-with is serializing the user state and passing it back and forth with
-each request. An attacker notices the "rO0" Java object signature (in base64) and
-uses the Java Serial Killer tool to gain remote code execution on the
-application server.
+Java
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 
-## References
+public class SessionService {
+    private final ObjectMapper mapper = new ObjectMapper();
 
--   \[OWASP Cheat Sheet: Software Supply Chain Security\](Coming Soon)
+    public SessionDto deserializeSession(byte[] rawData) throws IOException {
+        // SECURE: Strict schema validation mapping flat JSON structures to an immutable DTO
+        return mapper.readValue(rawData, SessionDto.class);
+    }
+}
 
--   \[OWASP Cheat Sheet: Secure build and deployment\](Coming Soon)
+// Statically defined Session DTO
+class SessionDto {
+    private String username;
+    private String sessionId;
 
--    [OWASP Cheat Sheet: Infrastructure as Code](https://cheatsheetseries.owasp.org/cheatsheets/Infrastructure_as_Code_Security_Cheat_Sheet.html) 
- 
--   [OWASP Cheat Sheet: Deserialization](
-    <https://wiki.owasp.org/index.php/Deserialization_Cheat_Sheet>)
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+    public String getSessionId() { return sessionId; }
+    public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+}
+Real-World Edge Cases & Advanced Vulnerabilities
+1. Second-Order Object Mutation / Mass Assignment
+When an application converts JSON structures directly to domain models or database objects without filtering fields, attackers can inject unexpected properties.
 
--   [SAFECode Software Integrity Controls](
-    https://safecode.org/publication/SAFECode_Software_Integrity_Controls0610.pdf)
+The Flaw: Specifying internal administrative properties (e.g., {"is_admin": true}) on public registration endpoints that map directly to model models.
 
--   [A 'Worst Nightmare' Cyberattack: The Untold Story Of The
-    SolarWinds
-    Hack](<https://www.npr.org/2021/04/16/985439655/a-worst-nightmare-cyberattack-the-untold-story-of-the-solarwinds-hack>)
+Remediation: Always decouple structural input parameters using explicit, scoped DTOs or Pydantic models. Avoid direct model mapping on controllers.
 
--   [CodeCov Bash Uploader Compromise](https://about.codecov.io/security-update)
+2. Lack of Signature Validation on Updates and Libraries
+Downloading files or dependency libraries over plain HTTP channels or using package registries without verifying signature paths or checksum hashes.
 
--   [Securing DevOps by Julien Vehent](https://www.manning.com/books/securing-devops)
+The Flaw: Active DNS spoofing or proxy compromise can inject modified dependencies directly into standard build pipelines.
 
-## List of Mapped CWEs
+Remediation: Configure artifact repositories and package pipelines to mandate cryptographic hash validations (sha256) and signed software releases.
 
-[CWE-345 Insufficient Verification of Data Authenticity](https://cwe.mitre.org/data/definitions/345.html)
+How to Prevent
+Banish Native Binary Deserialization: Strictly avoid native pickle (Python) or standard ObjectInputStream (Java) for untrusted network input.
 
-[CWE-353 Missing Support for Integrity Check](https://cwe.mitre.org/data/definitions/353.html)
+Standardize on Safe Formats: Enforce flat, structured serialization formats such as JSON, XML (safely configured), or Protocol Buffers.
 
-[CWE-426 Untrusted Search Path](https://cwe.mitre.org/data/definitions/426.html)
+Assert Payload Cryptography: If serialized data must travel through untrusted client channels, protect the package using digital signatures (such as HMAC-SHA256).
 
-[CWE-494 Download of Code Without Integrity Check](https://cwe.mitre.org/data/definitions/494.html)
+Secure the CI/CD Pipeline: Restrict developer push policies, isolate build container environments, and enforce automated supply chain signature verification checks.
 
-[CWE-502 Deserialization of Untrusted Data](https://cwe.mitre.org/data/definitions/502.html)
+References
+OWASP Cheat Sheet: Deserialization Prevention
 
-[CWE-565 Reliance on Cookies without Validation and Integrity Checking](https://cwe.mitre.org/data/definitions/565.html)
+Java Serial Killer tool (Mitigation Strategy)
 
-[CWE-784 Reliance on Cookies without Validation and Integrity Checking in a Security Decision](https://cwe.mitre.org/data/definitions/784.html)
+OWASP CycloneDX (SBOM Generation)
 
-[CWE-829 Inclusion of Functionality from Untrusted Control Sphere](https://cwe.mitre.org/data/definitions/829.html)
-
-[CWE-830 Inclusion of Web Functionality from an Untrusted Source](https://cwe.mitre.org/data/definitions/830.html)
-
-[CWE-915 Improperly Controlled Modification of Dynamically-Determined Object Attributes](https://cwe.mitre.org/data/definitions/915.html)
+SAFECode Software Integrity Controls
