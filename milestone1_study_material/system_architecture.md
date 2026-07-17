@@ -101,4 +101,5 @@ To ensure high performance, our pipeline processes code in five highly organized
     *   It calculates a safety score (e.g., "A" to "F") and prints out a detailed review that resembles a standard developer's Pull Request page on GitHub.
 5.  **Phase 5: Contextual Q&A Loop**:
     *   A conversation session is opened between the user and the **Conversational Assistant**.
-    *   The assistant holds the active review context in memory, allowing the developer to ask general or highly specific questions about how to improve their security skills.
+    *   The assistant holds the active review context in memory, allowing the developer to ask general or highly specific questions about how to improve their security skills.   
+ 
