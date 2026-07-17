@@ -1,0 +1,17 @@
+# Python bytecode (temporary cache folders)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local environments
+.venv/
+venv/
+env/
+
+# OS-specific temporary files
+.DS_Store
+Thumbs.db
+
+# Developer environment secrets
+.env
