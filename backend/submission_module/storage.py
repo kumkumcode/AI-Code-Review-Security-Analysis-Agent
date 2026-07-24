@@ -42,6 +42,7 @@ def save_submission(code, language, source_type):
         "language": language,
         "source_type": source_type,
         "code_file": code_filename,
+        "file_path": code_path,  # Added to resolve NoneType path errors
         "created_at": datetime.now().isoformat()
     }
 
