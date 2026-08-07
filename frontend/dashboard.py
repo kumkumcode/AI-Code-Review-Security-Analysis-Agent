@@ -1,3 +1,4 @@
+import requests
 import streamlit as st
 import sys
 import os
@@ -22,6 +23,7 @@ from reportlab.lib import colors
 # BRANDING
 # ============================================================
 APP_NAME = "AI Code Review & Security Analysis"
+APP_SHORT = "CodeReview.AI"
 APP_TAGLINE = "Multi-agent code quality and vulnerability analysis"
 
 # ============================================================
@@ -35,10 +37,37 @@ st.set_page_config(
 )
 
 # ============================================================
-# STYLING — High contrast for visibility on dark/light modes
+# STYLING
 # ============================================================
 st.markdown("""
 <style>
+/* ---- Top accent bar across the whole app ---- */
+.top-accent {
+    height: 4px;
+    background: linear-gradient(90deg, #2563eb 0%, #7c3aed 50%, #dc2626 100%);
+    border-radius: 4px;
+    margin-bottom: 18px;
+}
+
+/* ---- Custom sidebar wordmark badge (replaces external logo image) ---- */
+.brand-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0 6px 0;
+}
+.brand-icon {
+    width: 38px; height: 38px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+.brand-text-main { font-size: 0.95rem; font-weight: 700; color: #f1f5f9; line-height: 1.1; }
+.brand-text-sub { font-size: 0.7rem; color: #94a3b8; letter-spacing: 0.03em; text-transform: uppercase; }
+
+/* ---- Badges ---- */
 .badge {
     display: inline-block;
     padding: 3px 10px;
@@ -52,6 +81,7 @@ st.markdown("""
 .badge-informational { background-color: #e0f2fe; color: #0369a1; }
 .badge-low      { background-color: #dcfce7; color: #166534; }
 
+/* ---- Finding cards ---- */
 .finding-card {
     padding: 12px 14px;
     margin-bottom: 8px;
@@ -65,34 +95,34 @@ st.markdown("""
 .finding-card.informational { border-left-color: #0284c7; }
 .finding-card.low      { border-left-color: #16a34a; }
 
-.finding-title { 
-    font-size: 1rem; 
-    font-weight: 700; 
-    color: #ffffff !important; 
-}
-.finding-meta { 
-    font-size: 0.82rem; 
-    color: #cbd5e1 !important; 
-    margin: 4px 0 6px 0; 
-}
-.finding-explain { 
-    font-size: 0.9rem; 
-    color: #e2e8f0 !important; 
+.finding-title { font-size: 1rem; font-weight: 700; color: #ffffff !important; }
+.finding-meta { font-size: 0.82rem; color: #cbd5e1 !important; margin: 4px 0 6px 0; }
+.finding-explain { font-size: 0.9rem; color: #e2e8f0 !important; }
+
+/* ---- Sidebar sections ---- */
+.tip-text { font-size: 0.82rem; color: #94a3b8; font-style: italic; }
+.history-line { font-size: 0.82rem; color: #cbd5e1; padding: 3px 0; }
+.stat-chip {
+    display: inline-block;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    color: #e2e8f0;
+    margin-top: 4px;
 }
 
-.tip-text {
-    font-size: 0.82rem;
-    color: #94a3b8;
-    font-style: italic;
-}
-
-.history-line {
-    font-size: 0.82rem;
-    color: #cbd5e1;
-    padding: 3px 0;
+/* ---- Footer chip ---- */
+.footer-chip {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #64748b;
+    padding: 18px 0 4px 0;
 }
 </style>
 """, unsafe_allow_html=True)
+
+st.markdown('<div class="top-accent"></div>', unsafe_allow_html=True)
 
 # ============================================================
 # SESSION STATE INIT
@@ -101,6 +131,10 @@ if "history" not in st.session_state:
     st.session_state["history"] = []
 if "last_report" not in st.session_state:
     st.session_state["last_report"] = None
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+if "nav" not in st.session_state:
+    st.session_state["nav"] = "🔍 Security Audit"
 
 # ============================================================
 # HELPERS
@@ -235,24 +269,27 @@ SECURITY_TIPS = [
 ]
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR — single clean branding block + navigation + stats
 # ============================================================
 with st.sidebar:
-    st.markdown(
-        """
-        <div style="margin-bottom: 5px;">
-            <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRCE-RNyVt2O8xIo_lrS4qURTJz4FSnFH7xVNkb4YUIotu9DtbnWkKk7tEQ&s=10" 
-                 style="width: 100%; max-width: 160px; height: auto; display: block;">
+    st.markdown(f"""
+    <div class="brand-badge">
+        <div class="brand-icon">🛡️</div>
+        <div>
+            <div class="brand-text-main">{APP_SHORT}</div>
+            <div class="brand-text-sub">Infosys Springboard Project</div>
         </div>
-        """, 
-        unsafe_allow_html=True
-    )
-    # Added a graduation cap / briefcase emoji for a professional touch
-    st.caption("🎓 Virtual Internship Project")
+    </div>
+    """, unsafe_allow_html=True)
+    st.caption(APP_TAGLINE)
     st.divider()
 
-    st.markdown(f"**🛡️ {APP_NAME}**")
-    st.caption(APP_TAGLINE)
+    st.session_state["nav"] = st.radio(
+        "Navigate",
+        ["🔍 Security Audit", "💬 Chat Assistant"],
+        label_visibility="collapsed"
+    )
+
     st.divider()
 
     sev_counts = {"Critical": 0, "High": 0, "Medium": 0, "Informational": 0, "Low": 0}
@@ -263,8 +300,10 @@ with st.sidebar:
 
     st.caption("SESSION")
     st.markdown(
-        f"{total_scans} scans &nbsp;·&nbsp; "
-        f"🔴{sev_counts['Critical']} 🟠{sev_counts['High']} 🟡{sev_counts['Medium']} 🔵{sev_counts['Informational']} 🟢{sev_counts['Low']}"
+        f"<div class='stat-chip'>{total_scans} scans &nbsp;·&nbsp; "
+        f"🔴{sev_counts['Critical']} 🟠{sev_counts['High']} 🟡{sev_counts['Medium']} "
+        f"🔵{sev_counts['Informational']} 🟢{sev_counts['Low']}</div>",
+        unsafe_allow_html=True
     )
 
     st.caption("HISTORY")
@@ -276,249 +315,293 @@ with st.sidebar:
             label = f"{entry['time']} · {entry['lang']} · {entry['severity']}"
             if st.button(label, key=f"hist_{real_idx}", use_container_width=True):
                 st.session_state["last_report"] = entry["report"]
+                st.session_state["nav"] = "🔍 Security Audit"
                 st.rerun()
 
     st.divider()
     st.caption("TIP")
     tip = SECURITY_TIPS[total_scans % len(SECURITY_TIPS)]
     st.markdown(f"<span class='tip-text'>{tip}</span>", unsafe_allow_html=True)
-# ============================================================
-# HEADER
-# ============================================================
-st.title(f"🛡️ {APP_NAME}")
-st.caption("Paste or upload Python/Java source code — the agent auto-detects the language, analyzes vulnerabilities and quality, and generates a fixed version.")
 
-# ============================================================
-# CODE INPUT
-# ============================================================
-tab_paste, tab_upload = st.tabs(["📝 Paste Code", "📁 Upload File"])
-
-code_input = ""
-
-with tab_paste:
-    pasted = st.text_area(
-        "Paste your Python or Java code here:",
-        height=250,
-        placeholder="def my_function(): ...   /   public class Example { ... }"
+    st.markdown(
+        f"<div class='footer-chip'>⚙️ Gemini 3.6 Flash &nbsp;·&nbsp; 📚 OWASP RAG Knowledge Base</div>",
+        unsafe_allow_html=True
     )
-    if pasted.strip():
-        code_input = pasted
-
-with tab_upload:
-    uploaded_file = st.file_uploader("Upload a .py or .java file", type=["py", "java"])
-    if uploaded_file is not None:
-        code_input = uploaded_file.read().decode("utf-8")
-        ext = uploaded_file.name.split(".")[-1]
-        st.code(code_input, language="java" if ext == "java" else "python")
-
-run_clicked = st.button("⚡ Run Security Audit", type="primary", use_container_width=True)
 
 # ============================================================
-# RUN ANALYSIS
+# VIEW: SECURITY AUDIT
 # ============================================================
-if run_clicked:
-    if not code_input.strip():
-        st.warning("Please paste or upload some code first!")
-    else:
-        with st.spinner("Analyzing code for vulnerabilities..."):
-            try:
-                report = analyze_and_remediate(code_input)
-                st.session_state["last_report"] = report
+if st.session_state["nav"] == "🔍 Security Audit":
 
-                detected_lang = extract_field(r"Detected Language.*?[:\-]?\s*([A-Za-z+#]+)", report)
-                overall_severity = extract_field(r"Overall Severity Rating.*?(Critical|High|Medium|Informational|Low)", report)
+    st.title("🔍 Security Audit")
+    st.caption("Paste or upload Python/Java source code — the agent auto-detects the language, analyzes vulnerabilities and quality, and generates a fixed version.")
 
-                st.session_state["history"].append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "lang": detected_lang,
-                    "severity": overall_severity if overall_severity != "N/A" else "Medium",
-                    "report": report,
-                })
-                st.success("Audit completed successfully!")
+    tab_paste, tab_upload = st.tabs(["📝 Paste Code", "📁 Upload File"])
 
-            except Exception as e:
-                st.error(f"An error occurred during analysis: {e}")
+    code_input = ""
 
-# ============================================================
-# DISPLAY REPORT
-# ============================================================
-if st.session_state["last_report"]:
-    report_text = st.session_state["last_report"]
-    st.divider()
-
-    quality_score = extract_field(r"Quality Score.*?(\d{1,2}\s*/\s*10|\d{1,2})", report_text)
-    overall_severity = extract_field(r"Overall Severity Rating.*?(Critical|High|Medium|Informational|Low)", report_text)
-    duplication = extract_field(r"Code Duplication Rating.*?(High|Medium|Low|None Detected)", report_text)
-    detected_lang = extract_field(r"Detected Language.*?[:\-]?\s*([A-Za-z+#]+)", report_text)
-
-    severity_class = {
-        "Critical": "badge-critical", "High": "badge-high",
-        "Medium": "badge-medium", "Informational": "badge-informational", "Low": "badge-low",
-    }.get(overall_severity, "badge-low")
-
-    st.markdown("#### Findings")
-    table_rows = find_first_markdown_table(report_text)
-    findings = build_findings(table_rows)
-
-    if findings:
-        for f in findings:
-            render_finding_card(f)
-    else:
-        st.info("No structured findings table detected in this report — see the full report below.")
-
-    with st.expander("View full technical report"):
-        st.markdown(report_text)
-
-    st.markdown("#### Refactored secure code")
-    code_blocks = re.findall(r"```(?:\w+)?\n(.*?)```", report_text, re.DOTALL)
-    if code_blocks:
-        st.code(code_blocks[-1], language=guess_syntax_language(code_blocks[-1]))
-    else:
-        st.info("No refactored code block was returned in this report.")
-
-    st.divider()
-    st.markdown("#### Summary")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Language", detected_lang)
-    col2.metric("Quality Score", quality_score)
-    col3.metric("Duplication", duplication)
-    with col4:
-        st.markdown("Overall Severity")
-        st.markdown(f"<span class='badge {severity_class}'>{overall_severity}</span>", unsafe_allow_html=True)
-
-    # ============================================================
-    # PDF EXPORT
-    # ============================================================
-    st.divider()
-    st.markdown("#### Export report")
-
-    def markdown_table_to_data(md_table_text):
-        rows = []
-        for line in md_table_text.strip().split("\n"):
-            line = line.strip()
-            if not line.startswith("|"):
-                continue
-            if re.match(r"^\|[\s\-:|]+\|$", line):
-                continue
-            cells = [c.strip() for c in line.strip("|").split("|")]
-            rows.append(cells)
-        return rows
-
-    def generate_pdf_bytes(report_text):
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer, pagesize=letter,
-            rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40
+    with tab_paste:
+        pasted = st.text_area(
+            "Paste your Python or Java code here:",
+            height=250,
+            placeholder="def my_function(): ...   /   public class Example { ... }"
         )
+        if pasted.strip():
+            code_input = pasted
 
-        styles = getSampleStyleSheet()
-        normal_style = ParagraphStyle(
-            'ReportNormal', parent=styles['Normal'],
-            fontSize=10, leading=14, textColor=colors.HexColor("#222222")
-        )
-        h1_style = ParagraphStyle(
-            'ReportH1', parent=styles['Heading1'],
-            fontSize=16, leading=20, textColor=colors.HexColor("#1A365D"),
-            spaceBefore=14, spaceAfter=8
-        )
-        h2_style = ParagraphStyle(
-            'ReportH2', parent=styles['Heading2'],
-            fontSize=13, leading=16, textColor=colors.HexColor("#1A365D"),
-            spaceBefore=10, spaceAfter=6
-        )
-        code_style = ParagraphStyle(
-            'ReportCode', parent=styles['Code'],
-            fontSize=8.5, leading=11, backColor=colors.HexColor("#f0f0f0"),
-            borderPadding=6
-        )
+    with tab_upload:
+        uploaded_file = st.file_uploader("Upload a .py or .java file", type=["py", "java"])
+        if uploaded_file is not None:
+            code_input = uploaded_file.read().decode("utf-8")
+            ext = uploaded_file.name.split(".")[-1]
+            st.code(code_input, language="java" if ext == "java" else "python")
 
-        def clean_inline(text):
-            text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-            text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
-            return text
+    run_clicked = st.button("⚡ Run Security Audit", type="primary", use_container_width=True)
 
-        story = [
-            Paragraph(f"{APP_NAME} — Audit Report", h1_style),
-            HRFlowable(width="100%", color=colors.HexColor("#cccccc")),
-            Spacer(1, 10)
-        ]
+    if run_clicked:
+        if not code_input.strip():
+            st.warning("Please paste or upload some code first!")
+        else:
+            with st.spinner("Analyzing code for vulnerabilities..."):
+                try:
+                    report = analyze_and_remediate(code_input)
+                    st.session_state["last_report"] = report
+                    st.session_state["scanned_code"] = code_input
 
-        lines = report_text.split("\n")
-        i = 0
-        in_code_block = False
-        code_buffer = []
+                    detected_lang = extract_field(r"Detected Language.*?[:\-]?\s*([A-Za-z+#]+)", report)
+                    overall_severity = extract_field(r"Overall Severity Rating.*?(Critical|High|Medium|Informational|Low)", report)
 
-        while i < len(lines):
-            line = lines[i]
-            stripped = line.strip()
+                    st.session_state["history"].append({
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "lang": detected_lang,
+                        "severity": overall_severity if overall_severity != "N/A" else "Medium",
+                        "report": report,
+                    })
+                    st.success("Audit completed successfully!")
 
-            if stripped.startswith("```"):
-                if not in_code_block:
-                    in_code_block = True
-                    code_buffer = []
-                else:
-                    in_code_block = False
-                    code_text = "\n".join(code_buffer)
-                    safe_code = code_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                    safe_code = safe_code.replace('\n', '<br/>')
-                    story.append(Paragraph(safe_code, code_style))
-                    story.append(Spacer(1, 8))
-                i += 1
-                continue
+                except Exception as e:
+                    st.error(f"An error occurred during analysis: {e}")
 
-            if in_code_block:
-                code_buffer.append(line)
-                i += 1
-                continue
+    if st.session_state["last_report"]:
+        report_text = st.session_state["last_report"]
+        st.divider()
 
-            if stripped.startswith("|"):
-                table_lines = []
-                while i < len(lines) and lines[i].strip().startswith("|"):
-                    table_lines.append(lines[i])
+        quality_score = extract_field(r"Quality Score.*?(\d{1,2}\s*/\s*10|\d{1,2})", report_text)
+        overall_severity = extract_field(r"Overall Severity Rating.*?(Critical|High|Medium|Informational|Low)", report_text)
+        duplication = extract_field(r"Code Duplication Rating.*?(High|Medium|Low|None Detected)", report_text)
+        detected_lang = extract_field(r"Detected Language.*?[:\-]?\s*([A-Za-z+#]+)", report_text)
+
+        severity_class = {
+            "Critical": "badge-critical", "High": "badge-high",
+            "Medium": "badge-medium", "Informational": "badge-informational", "Low": "badge-low",
+        }.get(overall_severity, "badge-low")
+
+        st.markdown("#### Findings")
+        table_rows = find_first_markdown_table(report_text)
+        findings = build_findings(table_rows)
+
+        if findings:
+            for f in findings:
+                render_finding_card(f)
+        else:
+            st.info("No structured findings table detected in this report — see the full report below.")
+
+        with st.expander("View full technical report"):
+            st.markdown(report_text)
+
+        st.markdown("#### Refactored secure code")
+        code_blocks = re.findall(r"```(?:\w+)?\n(.*?)```", report_text, re.DOTALL)
+        if code_blocks:
+            st.code(code_blocks[-1], language=guess_syntax_language(code_blocks[-1]))
+        else:
+            st.info("No refactored code block was returned in this report.")
+
+        st.divider()
+        st.markdown("#### Summary")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Language", detected_lang)
+        col2.metric("Quality Score", quality_score)
+        col3.metric("Duplication", duplication)
+        with col4:
+            st.markdown("Overall Severity")
+            st.markdown(f"<span class='badge {severity_class}'>{overall_severity}</span>", unsafe_allow_html=True)
+
+        # ============================================================
+        # PDF EXPORT
+        # ============================================================
+        st.divider()
+        st.markdown("#### Export report")
+
+        def markdown_table_to_data(md_table_text):
+            rows = []
+            for line in md_table_text.strip().split("\n"):
+                line = line.strip()
+                if not line.startswith("|"):
+                    continue
+                if re.match(r"^\|[\s\-:|]+\|$", line):
+                    continue
+                cells = [c.strip() for c in line.strip("|").split("|")]
+                rows.append(cells)
+            return rows
+
+        def generate_pdf_bytes(report_text):
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(
+                buffer, pagesize=letter,
+                rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40
+            )
+
+            styles = getSampleStyleSheet()
+            normal_style = ParagraphStyle(
+                'ReportNormal', parent=styles['Normal'],
+                fontSize=10, leading=14, textColor=colors.HexColor("#222222")
+            )
+            h1_style = ParagraphStyle(
+                'ReportH1', parent=styles['Heading1'],
+                fontSize=16, leading=20, textColor=colors.HexColor("#1A365D"),
+                spaceBefore=14, spaceAfter=8
+            )
+            h2_style = ParagraphStyle(
+                'ReportH2', parent=styles['Heading2'],
+                fontSize=13, leading=16, textColor=colors.HexColor("#1A365D"),
+                spaceBefore=10, spaceAfter=6
+            )
+            code_style = ParagraphStyle(
+                'ReportCode', parent=styles['Code'],
+                fontSize=8.5, leading=11, backColor=colors.HexColor("#f0f0f0"),
+                borderPadding=6
+            )
+
+            def clean_inline(text):
+                text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+                text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+                return text
+
+            story = [
+                Paragraph(f"{APP_NAME} — Audit Report", h1_style),
+                HRFlowable(width="100%", color=colors.HexColor("#cccccc")),
+                Spacer(1, 10)
+            ]
+
+            lines = report_text.split("\n")
+            i = 0
+            in_code_block = False
+            code_buffer = []
+
+            while i < len(lines):
+                line = lines[i]
+                stripped = line.strip()
+
+                if stripped.startswith("```"):
+                    if not in_code_block:
+                        in_code_block = True
+                        code_buffer = []
+                    else:
+                        in_code_block = False
+                        code_text = "\n".join(code_buffer)
+                        safe_code = code_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        safe_code = safe_code.replace('\n', '<br/>')
+                        story.append(Paragraph(safe_code, code_style))
+                        story.append(Spacer(1, 8))
                     i += 1
-                table_data = markdown_table_to_data("\n".join(table_lines))
-                if table_data:
-                    tbl = Table(table_data, hAlign="LEFT", repeatRows=1)
-                    tbl.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                        ('FONTSIZE', (0, 0), (-1, -1), 8.5),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
-                        ('LEFTPADDING', (0, 0), (-1, -1), 5),
-                        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-                    ]))
-                    story.append(tbl)
-                    story.append(Spacer(1, 10))
-                continue
+                    continue
 
-            if stripped.startswith("### "):
-                story.append(Paragraph(clean_inline(stripped[4:]), h2_style))
-            elif stripped.startswith("## "):
-                story.append(Paragraph(clean_inline(stripped[3:]), h2_style))
-            elif stripped.startswith("# "):
-                story.append(Paragraph(clean_inline(stripped[2:]), h1_style))
-            elif stripped == "":
-                story.append(Spacer(1, 6))
-            else:
-                story.append(Paragraph(clean_inline(stripped), normal_style))
-                story.append(Spacer(1, 3))
+                if in_code_block:
+                    code_buffer.append(line)
+                    i += 1
+                    continue
 
-            i += 1
+                if stripped.startswith("|"):
+                    table_lines = []
+                    while i < len(lines) and lines[i].strip().startswith("|"):
+                        table_lines.append(lines[i])
+                        i += 1
+                    table_data = markdown_table_to_data("\n".join(table_lines))
+                    if table_data:
+                        tbl = Table(table_data, hAlign="LEFT", repeatRows=1)
+                        tbl.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                            ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+                        ]))
+                        story.append(tbl)
+                        story.append(Spacer(1, 10))
+                    continue
 
-        doc.build(story)
-        buffer.seek(0)
-        return buffer.getvalue()
+                if stripped.startswith("### "):
+                    story.append(Paragraph(clean_inline(stripped[4:]), h2_style))
+                elif stripped.startswith("## "):
+                    story.append(Paragraph(clean_inline(stripped[3:]), h2_style))
+                elif stripped.startswith("# "):
+                    story.append(Paragraph(clean_inline(stripped[2:]), h1_style))
+                elif stripped == "":
+                    story.append(Spacer(1, 6))
+                else:
+                    story.append(Paragraph(clean_inline(stripped), normal_style))
+                    story.append(Spacer(1, 3))
 
-    pdf_data = generate_pdf_bytes(report_text)
+                i += 1
 
-    st.download_button(
-        label="📄 Download PDF Audit Report",
-        data=pdf_data,
-        file_name="security_audit_report.pdf",
-        mime="application/pdf",
-        type="secondary",
-        use_container_width=True
-    )
+            doc.build(story)
+            buffer.seek(0)
+            return buffer.getvalue()
+
+        pdf_data = generate_pdf_bytes(report_text)
+
+        st.download_button(
+            label="📄 Download PDF Audit Report",
+            data=pdf_data,
+            file_name="security_audit_report.pdf",
+            mime="application/pdf",
+            type="secondary",
+            use_container_width=True
+        )
+
+# ============================================================
+# VIEW: CHAT ASSISTANT
+# ============================================================
+else:
+    st.title("💬 Chat Assistant")
+    st.caption("Ask follow-up questions about flagged issues, or general secure-coding guidance — grounded in the OWASP knowledge base.")
+
+    if st.session_state.get("scanned_code"):
+        st.info("💡 This chat has access to the code from your last audit as context.")
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if user_query := st.chat_input("Ask a question about your code or security findings..."):
+        st.session_state.messages.append({"role": "user", "content": user_query})
+        with st.chat_message("user"):
+            st.markdown(user_query)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    current_code = st.session_state.get("scanned_code", "")
+
+                    payload = {
+                        "query": user_query,
+                        "code_context": current_code,
+                        "chat_history": st.session_state.messages[:-1]
+                    }
+
+                    response = requests.post("http://localhost:8000/api/v1/chat", json=payload)
+                    if response.status_code == 200:
+                        answer = response.json().get("response", "No response returned.")
+                    else:
+                        answer = f"Error from backend: {response.text}"
+
+                    st.markdown(answer)
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                except Exception as e:
+                    error_msg = f"Failed to connect to backend chat endpoint: {e}"
+                    st.markdown(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})

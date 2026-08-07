@@ -1,15 +1,41 @@
 import os
 import time
+from pathlib import Path
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-load_dotenv()
+# Explicitly point at the .env file sitting next to this file (backend/.env)
+# instead of relying on load_dotenv()'s automatic discovery — that discovery
+# depends on the current working directory / how the script was launched,
+# which is exactly why this worked under `streamlit run` but failed under
+# `python -m uvicorn backend.main:app` run from a different folder.
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+_api_key = os.getenv("GEMINI_API_KEY")
+if not _api_key:
+    raise ValueError(
+        f"GEMINI_API_KEY not found. Checked for a .env file at: {ENV_PATH} "
+        f"— make sure that file exists and contains a line like "
+        f"GEMINI_API_KEY=your_key_here"
+    )
+
+# api_version='v1alpha' helps with the newer "AQ." format API keys,
+# which some client/API version combinations don't fully support yet.
+client = genai.Client(
+    api_key=_api_key,
+    http_options=types.HttpOptions(api_version="v1alpha")
+)
 
 # Try the newest model first; fall back to a calmer, stable model if it's overloaded.
 MODELS_TO_TRY = ["gemini-3.6-flash", "gemini-2.5-flash"]
+
+
+class RemediationAgentError(Exception):
+    """Raised when the agent cannot get a usable response from Gemini,
+    with a message that's safe to show directly in the UI."""
+    pass
 
 
 def analyze_and_remediate(code_snippet: str) -> str:
@@ -71,14 +97,30 @@ def analyze_and_remediate(code_snippet: str) -> str:
                 last_error = e
                 error_text = str(e)
 
+                # --- Case 1: server is temporarily busy — worth retrying ---
                 if "503" in error_text or "UNAVAILABLE" in error_text:
-                    # Server is busy — wait a moment and try again.
                     time.sleep(2)
                     continue
-                else:
-                    # A different kind of error (bad key, bad request, etc.)
-                    # There's no point retrying this — raise it immediately.
-                    raise
 
-    # If we reach here, every model and every retry failed.
-    raise last_error
+                # --- Case 2: API key itself is invalid/unauthenticated —
+                # retrying or switching models won't help, so fail fast
+                # with a clear, presentation-safe message instead of a
+                # raw Google error dump. ---
+                if any(marker in error_text for marker in
+                       ["API_KEY_INVALID", "401", "UNAUTHENTICATED",
+                        "ACCESS_TOKEN_TYPE_UNSUPPORTED"]):
+                    raise RemediationAgentError(
+                        "The AI engine could not authenticate with Gemini. "
+                        "This usually means the API key is missing, invalid, "
+                        "or not yet activated for this project — check the "
+                        ".env file and the key's status in Google AI Studio."
+                    ) from e
+
+                # --- Case 3: anything else — no point retrying, raise as-is ---
+                raise
+
+    # If we reach here, every model and every retry failed on 503s.
+    raise RemediationAgentError(
+        "The AI engine is currently overloaded and did not respond after "
+        "several attempts. Please wait a moment and try again."
+    ) from last_error

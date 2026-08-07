@@ -1,22 +1,25 @@
-import os
 import sys
+import os
+
+# Explicitly add your absolute project root directory to Python's path
+PROJECT_ROOT = r"C:\Users\smile\OneDrive\Desktop\ai-code-review-security-analysis"
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 import time
-import subprocess
 import traceback
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from remediation_agent import attach_remediations
-
-# Import refactored multi-tool agents directly
-from code_quality_agent import run_quality_analysis
-try:
-    from security_agent import run_security_analysis
-except ImportError:
-    from security_agent import run_security_agent as run_security_analysis
-
+# Consistent relative imports for backend modules
+from .remediation_agent import analyze_and_remediate
+from .coordinator import CoordinatorAgent
+from .pr_summary_agent import PRSummaryAgent
+from .code_quality_agent import run_quality_analysis
+from .security_agent import run_security_agent as run_security_analysis
+from .rag_chat_agent import RAGChatAssistant
 app = FastAPI(
     title="RAG-Enhanced AI Code Analysis Pipeline",
     description="Automated security and quality scanning with OWASP standards, ChromaDB RAG verification, and multi-agent remediation.",
@@ -32,11 +35,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize the RAG Chat Assistant globally once at startup for high performance
+chat_assistant = RAGChatAssistant()
+
 
 # ==========================================
 # 🛠️ Multi-Tool Execution Helper
 # ==========================================
-def run_full_analysis(code: str, filename: str = "test.py") -> dict:
+def run_full_analysis(code: str, filename: str = "test.py", api_key: Optional[str] = None) -> dict:
     start_time = time.time()
 
     # 1. Run Security Analysis
@@ -67,7 +73,25 @@ def run_full_analysis(code: str, filename: str = "test.py") -> dict:
         finding["id"] = idx
 
     # 3. Generate LLM Auto-Fixes & Diffs (Milestone 2)
-    combined_findings = attach_remediations(code, combined_findings, filename=filename)
+    for finding in combined_findings:
+        if not finding.get("remediation"):
+            snippet_context = finding.get("context", code)
+            finding["remediation"] = analyze_and_remediate(snippet_context)
+            
+    # 4. Run Coordinator Agent & PR Summary Agent (Milestone 3 Orchestration)
+    remediation_text = "Standard remediation applied."
+    pr_summary_text = "No summary generated."
+    
+    if api_key:
+        try:
+            coordinator = CoordinatorAgent(api_key=api_key)
+            coord_res = coordinator.orchestrate_workflow(code, sec_findings, qual_findings)
+            remediation_text = coord_res.get("remediation_output", remediation_text)
+
+            pr_agent = PRSummaryAgent(api_key=api_key)
+            pr_summary_text = pr_agent.generate_summary(sec_findings, qual_findings, remediation_text)
+        except Exception as agent_err:
+            print(f"Warning: Milestone 3 Agent execution failed: {agent_err}")
 
     elapsed_ms = (time.time() - start_time) * 1000
 
@@ -79,8 +103,12 @@ def run_full_analysis(code: str, filename: str = "test.py") -> dict:
         "execution_time_ms": elapsed_ms,
         "findings": combined_findings,
         "cyclomatic_complexity": complexity,
-        "maintainability_index": maintainability
+        "maintainability_index": maintainability,
+        "pr_summary": pr_summary_text,
+        "coordinator_remediation": remediation_text
     }
+
+
 # ==========================================
 # 📋 Pydantic Schemas (API Request/Response)
 # ==========================================
@@ -88,6 +116,7 @@ def run_full_analysis(code: str, filename: str = "test.py") -> dict:
 class CodeScanRequest(BaseModel):
     code: str = Field(..., description="Raw code string to analyze")
     filename: str = Field(default="snippet.py", description="Filename or identifier including extension")
+    api_key: Optional[str] = Field(default=None, description="Gemini API Key for LLM Agents")
 
 class RAGVerification(BaseModel):
     verified: bool
@@ -121,6 +150,7 @@ class ScanResponse(BaseModel):
     total_findings: int
     summary_counts: dict
     findings: List[FindingItem]
+    pr_summary: str              # 💡 Milestone 3 PR Review Output
 
 
 # ==========================================
@@ -132,7 +162,7 @@ def health_check():
     return {
         "status": "online",
         "service": "RAG-Enhanced AI Code Review Engine",
-        "phase": "Phase 2 - API Layer Active"
+        "phase": "Phase 3 - Milestone 3 Integration Active"
     }
 
 
@@ -140,13 +170,14 @@ def health_check():
 def scan_code_snippet(payload: CodeScanRequest):
     """
     Accepts raw code as JSON text, runs multi-tool security and quality agents, 
-    and returns a standardized JSON response.
+    coordinator workflow, and PR summary generation.
     """
     if not payload.code.strip():
         raise HTTPException(status_code=400, detail="Code payload cannot be empty.")
 
     try:
-        report = run_full_analysis(payload.code)
+        api_key = payload.api_key or os.getenv("GEMINI_API_KEY")
+        report = run_full_analysis(payload.code, filename=payload.filename, api_key=api_key)
         return format_api_response(payload.filename, report)
 
     except Exception as e:
@@ -156,24 +187,26 @@ def scan_code_snippet(payload: CodeScanRequest):
         raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
 
 
-@app.post("/api/v1/scan-file", response_model=ScanResponse)
-async def scan_file(file: UploadFile = File(...)):
+class ChatRequest(BaseModel):
+    query: str
+    code_context: Optional[str] = ""
+    chat_history: Optional[List[dict]] = []
+    api_key: Optional[str] = None
+
+@app.post("/api/v1/chat")
+def conversational_code_assistant(payload: ChatRequest):
     """
-    Accepts uploaded code files, runs security and quality analysis, 
-    and returns a standardized JSON response.
+    RAG-powered conversational endpoint for answering code review questions.
     """
     try:
-        contents = await file.read()
-        code_str = contents.decode("utf-8")
-
-        report = run_full_analysis(code_str)
-        return format_api_response(file.filename, report)
-
+        answer = chat_assistant.get_response(
+            query=payload.query,
+            chat_history=payload.chat_history or [],
+            code_context=payload.code_context or ""
+        )
+        return {"response": answer}
     except Exception as e:
-        print("\n=== PIPELINE CRASH TRACEBACK ===")
-        traceback.print_exc()
-        print("===============================\n")
-        raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chat assistant error: {str(e)}")
 
 
 # ==========================================
@@ -190,7 +223,6 @@ def format_api_response(filename: str, pipeline_report: dict) -> ScanResponse:
     summary_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
     formatted_findings = []
 
-    # Calculate overall Health Score (starts at 100%, deducts by severity)
     deductions = {"CRITICAL": 35, "HIGH": 20, "MEDIUM": 10, "LOW": 5}
     current_score = 100
 
@@ -207,7 +239,6 @@ def format_api_response(filename: str, pipeline_report: dict) -> ScanResponse:
 
         current_score = max(0, current_score)
 
-        # Check for RAG verification in text or dict format
         verification_text = str(f.get("verification", ""))
         is_rag_verified = "RAG Verified" in verification_text
         kb_source = f.get("kb_reference") if is_rag_verified else None
@@ -215,11 +246,9 @@ def format_api_response(filename: str, pipeline_report: dict) -> ScanResponse:
         title = str(f.get("category", f.get("title", "Code Issue")))
         context_str = str(f.get("context", ""))
 
-        # Defaults for non-technical users
         simple_exp = f"This line of code contains a {sev.lower()}-risk pattern that violates security/quality guidelines."
         impact = "May degrade application stability or expose internal data."
 
-        # Customized explanations based on issue category
         title_lower = title.lower()
         if "secret" in title_lower or "key" in title_lower:
             simple_exp = "Your secret key or password is written directly in the code file instead of being hidden safely."
@@ -259,7 +288,6 @@ def format_api_response(filename: str, pipeline_report: dict) -> ScanResponse:
             )
         )
 
-    # Calculate Letter Health Grade
     if current_score >= 90:
         grade = "A (Excellent)"
     elif current_score >= 75:
@@ -271,7 +299,6 @@ def format_api_response(filename: str, pipeline_report: dict) -> ScanResponse:
     else:
         grade = "F (Critical Risk)"
 
-    # Executive Summary Narrative
     total_issues = len(formatted_findings)
     if total_issues == 0:
         summary = "✅ Your codebase passed all scans with flying colors! No security vulnerabilities or quality flaws detected."
@@ -288,5 +315,55 @@ def format_api_response(filename: str, pipeline_report: dict) -> ScanResponse:
         executive_summary=summary,
         total_findings=total_issues,
         summary_counts=summary_counts,
-        findings=formatted_findings
+        findings=formatted_findings,
+        pr_summary=pipeline_report.get("pr_summary", "PR summary generation pending.")
     )
+
+
+# ==========================================
+# 🖥️ Streamlit Frontend Interface
+# ==========================================
+import streamlit as st
+import requests
+
+# Only runs when executed via Streamlit (streamlit run main.py)
+if __name__ == "__main__" or "streamlit" in sys.modules:
+    st.title("🤖 RAG-Enhanced AI Code Reviewer")
+
+    st.subheader("💬 Conversational Code Assistant")
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if user_query := st.chat_input("Ask a question about your code or security findings..."):
+        st.session_state.messages.append({"role": "user", "content": user_query})
+        with st.chat_message("user"):
+            st.markdown(user_query)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    current_code = st.session_state.get("scanned_code", "")
+                    
+                    payload = {
+                        "query": user_query,
+                        "code_context": current_code,
+                        "chat_history": st.session_state.messages[:-1]
+                    }
+                    
+                    response = requests.post("http://localhost:8000/api/v1/chat", json=payload)
+                    if response.status_code == 200:
+                        answer = response.json().get("response", "No response returned.")
+                    else:
+                        answer = f"Error from backend: {response.text}"
+                    
+                    st.markdown(answer)
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                except Exception as e:
+                    error_msg = f"Failed to connect to backend chat endpoint: {e}"
+                    st.markdown(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
