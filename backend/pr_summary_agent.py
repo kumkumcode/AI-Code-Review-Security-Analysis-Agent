@@ -1,17 +1,21 @@
 from google import genai
+from google.genai import types
+
 
 class PRSummaryAgent:
-    def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-2.5-flash")
 
-    def generate_summary(self, security_findings: list, quality_findings: list, remediation_output: str) -> str:
-        """
-        Compiles all agent outputs into a structured PR-style review summary.
-        """
-        prompt = f"""
-        You are an expert Code Reviewer. Generate a professional Pull Request review summary based on the following data:
-        
+  def __init__(self, api_key: str):
+    self.client = genai.Client(api_key=api_key)
+    self.model_name = "gemini-2.5-flash"
+
+  def generate_summary(
+      self,
+      security_findings: list,
+      quality_findings: list,
+      remediation_output: str,
+  ) -> str:
+    """Compiles findings into a multi-line bulleted summary with guaranteed spacing."""
+    prompt = f"""
         Security Findings:
         {security_findings}
         
@@ -21,11 +25,30 @@ class PRSummaryAgent:
         Remediation Details:
         {remediation_output}
         
-        Format the output using Markdown with the following sections:
-        1. **Executive Overview**: A 2-3 sentence summary of the overall code health.
-        2. **Severity Breakdown**: Count or list of High, Medium, and Low severity issues found.
-        3. **Prioritized Fix List**: A clear bulleted list of fixes ordered by priority.
+        Generate a professional PR review summary. You MUST format your response as 5 separate bullet points. 
+        Separate every single bullet point with double line breaks so they never appear on the same line.
         """
-        
-        response = self.model.generate_content(prompt)
-        return response.text
+
+    # Using a system instruction to strictly dictate output layout behavior
+    response = self.client.models.generate_content(
+        model=self.model_name,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=(
+                "You are a strict code formatter. Always output each bullet"
+                " point on a completely new line separated by actual newline"
+                " characters (\\n\\n). Never collapse lists into a single"
+                " line."
+            ),
+            temperature=0.1,
+        ),
+    )
+
+    # Fallback safety: If the text still lacks line breaks, force-split them if needed
+    text = response.text
+    if "\n" not in text and "•" in text:
+      text = text.replace("•", "\n\n•")
+    elif "\n" not in text and "-" in text:
+      text = text.replace("-", "\n\n-")
+
+    return text

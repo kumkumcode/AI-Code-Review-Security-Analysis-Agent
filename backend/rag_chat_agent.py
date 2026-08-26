@@ -1,6 +1,6 @@
 import os
 import time
-from typing import List, Dict
+from typing import List, Dict, Generator
 
 from langchain_community.vectorstores import Chroma
 from langchain_core.embeddings import Embeddings
@@ -127,8 +127,17 @@ class RAGChatAssistant:
     def get_response(self, query: str, chat_history: List[Dict[str, str]], code_context: str = "") -> str:
         """
         Answers developer queries using RAG retrieval combined with expert code
-        review instructions and code context — calling Gemini directly so the
-        request goes through the same auth path already proven to work.
+        review instructions and code context — returning a full string response.
+        """
+        full_text = ""
+        for chunk in self.stream_response(query, chat_history, code_context):
+            full_text += chunk
+        return full_text
+
+    def stream_response(self, query: str, chat_history: List[Dict[str, str]], code_context: str = "") -> Generator[str, None, None]:
+        """
+        Streams expert developer query responses token-by-token using Gemini's streaming capabilities,
+        matching the speed and responsiveness of the streaming reports.
         """
         try:
             retrieved_context = self._retrieve_context(query)
@@ -152,11 +161,14 @@ class RAGChatAssistant:
             last_error = None
             for model_name in CHAT_MODELS_TO_TRY:
                 try:
-                    response = self.client.models.generate_content(
+                    response_stream = self.client.models.generate_content_stream(
                         model=model_name,
                         contents=full_prompt,
                     )
-                    return response.text
+                    for chunk in response_stream:
+                        if chunk.text:
+                            yield chunk.text
+                    return
                 except Exception as e:
                     last_error = e
                     error_text = str(e)
@@ -169,13 +181,15 @@ class RAGChatAssistant:
                         continue
                     raise
 
-            raise last_error
+            if last_error:
+                raise last_error
 
         except Exception as e:
             error_text = str(e)
             if _is_auth_error(error_text):
-                return (
+                yield (
                     "Chat assistant error: could not authenticate with Gemini. "
                     "Check that GEMINI_API_KEY in .env is current and valid."
                 )
-            return f"Chat assistant error: {error_text}"
+            else:
+                yield f"Chat assistant error: {error_text}"

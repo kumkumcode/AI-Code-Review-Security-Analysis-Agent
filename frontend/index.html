@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CodeReview.AI — Infosys Springboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<style>
+/* ── Reset ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;
+  background:#0d0d14;color:#f1f5f9;font-size:14px;}
+
+/* ── CSS Variables ── */
+:root{
+  --bg-base:#0d0d14;
+  --bg-panel:#13131f;
+  --bg-card:#1a1a2e;
+  --border:#2a2a45;
+  --accent:#6366f1;
+  --accent2:#818cf8;
+  --txt-pri:#f1f5f9;
+  --txt-sec:#94a3b8;
+  --txt-mut:#475569;
+  --green:#22c55e;
+  --red:#ef4444;
+  --orange:#f97316;
+  --yellow:#eab308;
+  --blue:#3b82f6;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:var(--accent);}
+
+/* ── Top bar ── */
+#topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  height:50px;padding:0 20px;
+  background:var(--bg-panel);border-bottom:1px solid var(--border);
+  position:fixed;top:0;left:0;right:0;z-index:1000;
+  box-shadow:0 1px 8px rgba(0,0,0,0.5);
+}
+.tb-brand{display:flex;align-items:center;gap:10px;}
+.tb-icon{width:32px;height:32px;border-radius:8px;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.tb-name{font-size:1rem;font-weight:700;color:var(--txt-pri);}
+.tb-sub{font-size:0.65rem;color:var(--txt-sec);letter-spacing:0.05em;}
+.tb-badges{display:flex;gap:6px;}
+.badge{background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
+  color:var(--accent2);font-size:0.68rem;padding:3px 10px;border-radius:20px;font-weight:600;}
+
+/* ── Main layout ── */
+#app{display:flex;height:calc(100vh - 50px);margin-top:50px;overflow:hidden;}
+
+/* ── Panels ── */
+.panel{display:flex;flex-direction:column;overflow:hidden;position:relative;}
+#panel-left{width:260px;min-width:140px;max-width:420px;
+  background:var(--bg-panel);border-right:1px solid var(--border);}
+#panel-center{flex:1;min-width:300px;background:var(--bg-base);overflow:hidden;display:flex;flex-direction:column;}
+#panel-right{width:340px;min-width:220px;max-width:520px;
+  background:var(--bg-panel);border-left:1px solid var(--border);}
+
+/* ── Resize handles ── */
+.resize-handle{
+  width:6px;background:#1e1e35;cursor:col-resize;
+  flex-shrink:0;position:relative;transition:background 0.15s;z-index:10;
+  display:flex;align-items:center;justify-content:center;
+  border-left:1px solid var(--border);border-right:1px solid var(--border);
+}
+.resize-handle::after{
+  content:'⋮';font-size:14px;color:#3a3a5c;
+  transition:color 0.15s;line-height:1;letter-spacing:-2px;
+}
+.resize-handle:hover,.resize-handle.dragging{background:rgba(99,102,241,0.15);}
+.resize-handle:hover::after,.resize-handle.dragging::after{color:var(--accent);}
+
+/* ── Panel header ── */
+.panel-header{
+  padding:10px 12px 8px;border-bottom:1px solid var(--border);
+  font-size:0.65rem;font-weight:700;color:#94a3b8;
+  letter-spacing:0.08em;text-transform:uppercase;flex-shrink:0;
+}
+.panel-scroll{overflow-y:auto;flex:1;padding:10px 12px;}
+
+/* ── History items ── */
+.hist-item{
+  padding:9px 10px;border-radius:8px;margin-bottom:6px;
+  background:rgba(255,255,255,0.04);border:1px solid #2a2a45;
+  cursor:pointer;transition:all 0.15s;
+}
+.hist-item:hover{background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.3);}
+.hist-item.active{background:rgba(99,102,241,0.14);border-color:rgba(99,102,241,0.4);}
+.hist-title{font-size:0.84rem;font-weight:600;color:#f1f5f9;}
+.hist-meta{font-size:0.72rem;color:#94a3b8;margin-top:3px;}
+.plabel{font-size:0.65rem;font-weight:700;color:#6366f1;
+  letter-spacing:0.08em;text-transform:uppercase;padding:14px 0 6px;
+  display:flex;align-items:center;gap:6px;}
+.plabel::after{content:'';flex:1;height:1px;background:#2a2a45;}
+</style>
+
+/* ── Center panel parts ── */
+#center-top{
+  flex-shrink:0;padding:16px 20px 12px;
+  border-bottom:1px solid var(--border);background:var(--bg-base);
+}
+#center-body{flex:1;overflow-y:auto;padding:20px;}
+.center-title{font-size:1.05rem;font-weight:700;color:var(--txt-pri);margin-bottom:3px;}
+.center-sub{font-size:0.76rem;color:var(--txt-sec);margin-bottom:14px;}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:14px;}
+.tab{padding:7px 16px;font-size:0.82rem;cursor:pointer;color:var(--txt-sec);
+  border-bottom:2px solid transparent;transition:all 0.15s;user-select:none;}
+.tab:hover{color:var(--txt-pri);}
+.tab.active{color:var(--txt-pri);border-bottom-color:var(--accent);font-weight:600;}
+
+/* ── Code textarea ── */
+#code-input{
+  width:100%;height:200px;background:rgba(255,255,255,0.03);
+  border:1px solid var(--border);border-radius:8px;padding:12px;
+  color:var(--txt-pri);font-family:'Fira Code','Cascadia Code',monospace;
+  font-size:0.83rem;line-height:1.6;resize:vertical;outline:none;
+  transition:border-color 0.15s;
+}
+#code-input:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(99,102,241,0.15);}
+#code-input::placeholder{color:var(--txt-mut);}
+
+/* ── Upload zone ── */
+#upload-zone{
+  border:2px dashed var(--border);border-radius:8px;padding:30px 20px;
+  text-align:center;cursor:pointer;transition:all 0.15s;color:var(--txt-sec);
+  font-size:0.84rem;
+}
+#upload-zone:hover,#upload-zone.drag-over{
+  border-color:var(--accent);background:rgba(99,102,241,0.05);color:var(--txt-pri);}
+#upload-zone .icon{font-size:1.8rem;margin-bottom:8px;}
+#file-input{display:none;}
+
+/* ── Run button ── */
+#run-btn{
+  width:100%;padding:11px;margin-top:12px;
+  background:var(--accent);color:#fff;border:none;border-radius:8px;
+  font-size:0.9rem;font-weight:600;cursor:pointer;transition:all 0.15s;
+}
+#run-btn:hover{background:#4f46e5;box-shadow:0 0 0 2px rgba(99,102,241,0.3);}
+#run-btn:disabled{background:var(--txt-mut);cursor:not-allowed;box-shadow:none;}
+
+/* ── Status bar ── */
+#status-bar{
+  padding:8px 12px;font-size:0.78rem;border-radius:8px;
+  margin-top:10px;display:none;
+}
+#status-bar.info{background:rgba(99,102,241,0.1);color:var(--accent2);border:1px solid rgba(99,102,241,0.2);}
+#status-bar.success{background:rgba(34,197,94,0.1);color:var(--green);border:1px solid rgba(34,197,94,0.2);}
+#status-bar.error{background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.2);}
+
+/* ── Report section ── */
+#report-section{display:none;}
+.divider{border:none;border-top:1px solid var(--border);margin:16px 0;}
+
+/* ── Metric cards ── */
+.metrics-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+.metric-card{
+  flex:1;min-width:100px;background:var(--bg-card);
+  border:1px solid var(--border);border-radius:10px;padding:12px 14px;
+}
+.mc-label{font-size:0.62rem;font-weight:700;color:var(--txt-sec);
+  text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
+.mc-value{font-size:1.45rem;font-weight:800;line-height:1;}
+.mc-sub{font-size:0.7rem;color:var(--txt-sec);margin-top:3px;}
+
+/* ── Executive summary ── */
+.exec-box{
+  background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);
+  border-radius:10px;padding:13px 16px;font-size:0.86rem;
+  color:#e2e8f0;line-height:1.65;margin-bottom:16px;
+}
+
+/* ── Section header ── */
+.shdr{
+  display:flex;align-items:center;gap:8px;margin:20px 0 10px;
+  font-size:0.7rem;font-weight:700;color:var(--txt-sec);
+  text-transform:uppercase;letter-spacing:0.07em;
+}
+.shdr::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* ── Charts ── */
+.charts-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;}
+.chart-card{background:var(--bg-card);border:1px solid var(--border);
+  border-radius:10px;padding:12px;position:relative;}
+.chart-title{font-size:0.7rem;color:var(--txt-sec);text-align:center;
+  margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;}
+.chart-card canvas{max-height:180px;}
+
+/* ── Finding cards ── */
+.fcard{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;margin-bottom:8px;
+  border-left:4px solid var(--accent);
+}
+.fcard-title{font-size:0.88rem;font-weight:700;color:var(--txt-pri);
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.sev-pill{display:inline-block;padding:2px 8px;border-radius:20px;
+  font-size:0.67rem;font-weight:700;}
+.fcard-meta{font-size:0.73rem;color:var(--txt-sec);margin:4px 0 5px;}
+.fcard-explain{font-size:0.82rem;color:#cbd5e1;line-height:1.5;}
+
+/* ── Report accordion ── */
+.accordion{background:var(--bg-card);border:1px solid var(--border);
+  border-radius:10px;margin-bottom:6px;overflow:hidden;}
+.acc-header{
+  padding:11px 14px;cursor:pointer;font-size:0.86rem;font-weight:600;
+  color:var(--txt-pri);display:flex;align-items:center;justify-content:space-between;
+  user-select:none;transition:background 0.15s;
+}
+.acc-header:hover{background:rgba(255,255,255,0.03);}
+.acc-arrow{font-size:0.75rem;color:var(--txt-sec);transition:transform 0.2s;}
+.acc-body{padding:12px 14px;border-top:1px solid var(--border);
+  font-size:0.84rem;color:#cbd5e1;line-height:1.65;display:none;}
+.acc-body.open{display:block;}
+.acc-arrow.open{transform:rotate(90deg);}
+
+/* ── Code block ── */
+.code-block{
+  background:#0a0a12;border:1px solid var(--border);border-radius:8px;
+  padding:14px;font-family:'Fira Code','Cascadia Code',monospace;
+  font-size:0.81rem;line-height:1.6;color:#e2e8f0;overflow-x:auto;
+  white-space:pre;margin:8px 0;
+}
+
+/* ── Download button ── */
+.dl-btn{
+  width:100%;padding:10px;background:transparent;
+  border:1px solid var(--accent);color:var(--accent2);border-radius:8px;
+  font-size:0.86rem;font-weight:600;cursor:pointer;transition:all 0.15s;margin-top:8px;
+}
+.dl-btn:hover{background:rgba(99,102,241,0.1);}
+
+/* ── Cipher panel ── */
+#cipher-header{
+  padding:11px 14px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;flex-shrink:0;
+}
+.cipher-av{width:30px;height:30px;border-radius:50%;flex-shrink:0;
+  background:linear-gradient(135deg,#6366f1,#a855f7);
+  display:flex;align-items:center;justify-content:center;font-size:14px;}
+.cipher-name{font-size:0.88rem;font-weight:700;color:var(--txt-pri);}
+.cipher-status{font-size:0.67rem;color:var(--green);display:flex;align-items:center;gap:3px;}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0;}
+
+#ctx-banner{
+  margin:6px 10px;background:rgba(34,197,94,0.08);
+  border:1px solid rgba(34,197,94,0.2);border-radius:6px;
+  padding:5px 10px;font-size:0.71rem;color:var(--green);display:none;
+}
+#cipher-messages{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;}
+.welcome{text-align:center;padding:30px 10px;color:var(--txt-mut);}
+.welcome-icon{font-size:2.2rem;margin-bottom:10px;}
+.welcome-name{color:var(--accent2);font-weight:700;font-size:0.95rem;margin-bottom:6px;}
+.welcome-sub{font-size:0.8rem;line-height:1.7;}
+.msg-user{
+  align-self:flex-end;background:rgba(99,102,241,0.2);
+  border:1px solid rgba(99,102,241,0.35);color:var(--txt-pri);
+  padding:8px 12px;border-radius:12px 12px 2px 12px;
+  max-width:88%;font-size:0.84rem;line-height:1.5;word-wrap:break-word;
+}
+.msg-bot{
+  align-self:flex-start;background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);color:var(--txt-pri);
+  padding:8px 12px;border-radius:2px 12px 12px 12px;
+  max-width:94%;font-size:0.84rem;line-height:1.55;word-wrap:break-word;
+}
+.msg-bot-name{font-size:0.66rem;font-weight:700;color:var(--accent2);margin-bottom:4px;}
+.msg-thinking{opacity:0.6;font-style:italic;font-size:0.8rem;}
+
+#cipher-input-area{
+  padding:10px 12px;border-top:1px solid var(--border);
+  flex-shrink:0;display:flex;gap:8px;align-items:flex-end;
+}
+#cipher-input{
+  flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--border);
+  border-radius:8px;padding:9px 12px;color:var(--txt-pri);font-size:0.84rem;
+  outline:none;resize:none;max-height:100px;min-height:38px;
+  font-family:inherit;transition:border-color 0.15s;line-height:1.5;
+}
+#cipher-input:focus{border-color:var(--accent);}
+#cipher-input::placeholder{color:var(--txt-mut);}
+#cipher-send{
+  width:36px;height:36px;border-radius:8px;background:var(--accent);
+  border:none;color:#fff;cursor:pointer;font-size:1rem;
+  display:flex;align-items:center;justify-content:center;
+  transition:background 0.15s;flex-shrink:0;
+}
+#cipher-send:hover{background:#4f46e5;}
+#cipher-send:disabled{background:var(--txt-mut);cursor:not-allowed;}
+#clear-chat-btn{
+  width:100%;padding:6px;background:transparent;border:1px solid var(--border);
+  color:var(--txt-sec);border-radius:6px;cursor:pointer;font-size:0.78rem;
+  margin:0 12px 8px;width:calc(100% - 24px);transition:all 0.15s;
+}
+#clear-chat-btn:hover{border-color:var(--red);color:var(--red);}
+
+/* ── Loading spinner ── */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(99,102,241,0.3);
+  border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ── Gauge chart wrapper ── */
+#gauge-wrap{position:relative;display:flex;align-items:center;justify-content:center;}
+#gauge-score{position:absolute;bottom:8px;font-size:1.1rem;font-weight:800;text-align:center;}
+#gauge-grade{font-size:0.65rem;color:var(--txt-sec);}
+
+/* Markdown rendered in chat */
+.msg-bot h1,.msg-bot h2,.msg-bot h3{font-size:0.88rem;color:var(--accent2);
+  font-weight:700;margin:8px 0 4px;}
+.msg-bot code{background:rgba(99,102,241,0.15);padding:1px 5px;
+  border-radius:4px;font-family:monospace;font-size:0.8rem;}
+.msg-bot pre{background:#0a0a12;border:1px solid var(--border);border-radius:6px;
+  padding:10px;overflow-x:auto;margin:6px 0;}
+.msg-bot pre code{background:none;padding:0;}
+.msg-bot ul,.msg-bot ol{padding-left:18px;margin:4px 0;}
+.msg-bot li{margin:2px 0;}
+.msg-bot p{margin:4px 0;}
+.msg-bot strong{color:#f1f5f9;}
+</style>
+
+</head>
+<body>
+
+<!-- ── TOP BAR ── -->
+<div id="topbar">
+  <div class="tb-brand">
+    <div class="tb-icon">🛡️</div>
+    <div>
+      <div class="tb-name">CodeReview.AI</div>
+      <div class="tb-sub">Infosys Springboard — AI Security Analysis</div>
+    </div>
+  </div>
+  <div class="tb-badges">
+    <span class="badge">⚡ Gemini</span>
+    <span class="badge">📚 OWASP RAG</span>
+    <span class="badge">🔐 Cipher AI</span>
+  </div>
+</div>
+
+<!-- ── 3-PANEL APP ── -->
+<div id="app">
+
+  <!-- LEFT: History -->
+  <div class="panel" id="panel-left">
+    <div class="panel-header">Explorer</div>
+    <div class="panel-scroll" id="left-scroll">
+
+      <div class="plabel">📋 Audit History</div>
+      <div id="audit-history-list">
+        <div style="font-size:0.78rem;color:#94a3b8;line-height:1.7;">
+          No scans yet.<br>Run your first audit to see history here.
+        </div>
+      </div>
+
+      <div class="plabel">💬 Chat Sessions</div>
+      <div id="chat-history-list">
+        <div style="font-size:0.78rem;color:#94a3b8;">No saved sessions yet.</div>
+      </div>
+
+      <div style="text-align:center;font-size:0.65rem;color:#475569;margin-top:24px;">
+        CodeReview.AI · Infosys Springboard
+      </div>
+    </div>
+  </div>
+
+  <!-- RESIZE HANDLE 1 -->
+  <div class="resize-handle" id="rh1"></div>
+
+  <!-- CENTER: Audit -->
+  <div class="panel" id="panel-center">
+
+    <div id="center-top">
+      <div class="center-title">🔍 Security Audit</div>
+      <div class="center-sub">Paste or upload Python / Java code — Cipher analyses vulnerabilities, quality, and produces a hardened version.</div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <div class="tab active" id="tab-paste" onclick="switchTab('paste')">📝 Paste Code</div>
+        <div class="tab" id="tab-upload" onclick="switchTab('upload')">📁 Upload File</div>
+      </div>
+
+      <!-- Paste area -->
+      <div id="pane-paste">
+        <textarea id="code-input" placeholder="# Paste your Python or Java code here...&#10;def example():&#10;    pass"></textarea>
+      </div>
+
+      <!-- Upload area -->
+      <div id="pane-upload" style="display:none;">
+        <div id="upload-zone" onclick="document.getElementById('file-input').click()"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="handleDrop(event)">
+          <div class="icon">📁</div>
+          <div>Click to upload or drag &amp; drop</div>
+          <div style="font-size:0.72rem;color:var(--txt-mut);margin-top:4px;">.py or .java files</div>
+        </div>
+        <input type="file" id="file-input" accept=".py,.java" onchange="handleFileSelect(event)"/>
+        <div id="file-preview" style="display:none;margin-top:10px;">
+          <div id="file-name" style="font-size:0.78rem;color:var(--green);margin-bottom:6px;"></div>
+          <pre class="code-block" id="file-content" style="max-height:150px;overflow-y:auto;"></pre>
+        </div>
+      </div>
+
+      <button id="run-btn" onclick="runAudit()">⚡ Run Security Audit</button>
+      <div id="status-bar"></div>
+    </div>
+
+    <!-- Report output -->
+    <div id="center-body">
+      <div id="report-section">
+        <hr class="divider"/>
+
+        <!-- Metric cards -->
+        <div class="metrics-row" id="metrics-row"></div>
+
+        <!-- Executive summary -->
+        <div class="exec-box" id="exec-summary"></div>
+
+        <!-- Charts -->
+        <div class="shdr">📊 Visual Analysis</div>
+        <div class="charts-row" id="charts-row">
+          <div class="chart-card">
+            <div class="chart-title">Severity Breakdown</div>
+            <canvas id="chart-sev"></canvas>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">Issues by Category</div>
+            <canvas id="chart-cat"></canvas>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">Health Score</div>
+            <div id="gauge-wrap">
+              <canvas id="chart-gauge"></canvas>
+              <div id="gauge-score">
+                <div id="gauge-num">-</div>
+                <div id="gauge-grade"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Findings -->
+        <div id="findings-section" style="display:none;">
+          <div class="shdr">🔎 Findings Detail</div>
+          <div id="findings-list"></div>
+        </div>
+
+        <!-- Full report accordion -->
+        <div class="shdr">📄 Full Technical Report</div>
+        <div id="report-accordion"></div>
+
+        <!-- Refactored code -->
+        <div class="shdr">✅ Refactored Secure Code</div>
+        <div id="refactored-code"></div>
+
+        <!-- Export -->
+        <div class="shdr">📥 Export</div>
+        <button class="dl-btn" onclick="downloadPDF()">📄 Download PDF Audit Report</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESIZE HANDLE 2 -->
+  <div class="resize-handle" id="rh2"></div>
+
+  <!-- RIGHT: Cipher -->
+  <div class="panel" id="panel-right">
+    <div id="cipher-header">
+      <div class="cipher-av">🔐</div>
+      <div>
+        <div class="cipher-name">Cipher</div>
+        <div class="cipher-status"><div class="dot"></div>Online · AI Security Assistant</div>
+      </div>
+    </div>
+    <div id="ctx-banner">✅ Context loaded: <span id="ctx-lang">Code</span> from latest audit</div>
+    <div id="cipher-messages">
+      <div class="welcome">
+        <div class="welcome-icon">🔐</div>
+        <div class="welcome-name">Hi, I'm Cipher</div>
+        <div class="welcome-sub">Your AI Security Assistant.<br>Ask me about your code, vulnerabilities,<br>or any secure coding question.</div>
+      </div>
+    </div>
+    <button id="clear-chat-btn" onclick="clearChat()" style="display:none;">🗑️ Clear Chat</button>
+    <div id="cipher-input-area">
+      <textarea id="cipher-input" placeholder="Ask Cipher about your code or security…" rows="1"
+        onkeydown="handleCipherKey(event)" oninput="autoResize(this)"></textarea>
+      <button id="cipher-send" onclick="sendToCI()">➤</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════
+const API = 'http://localhost:8000';
+let state = {
+  auditHistory: [],
+  chatHistory:  [],
+  messages:     [],
+  activeReport: null,
+  activeCode:   '',
+  activeLang:   '',
+  chartSev:     null,
+  chartCat:     null,
+  chartGauge:   null,
+};
+
+const TIPS = [
+  "Never build SQL queries with string concatenation — always use parameterised queries.",
+  "Store secrets in environment variables, never directly in source code.",
+  "Validate and sanitise all user input before using it in DB or system calls.",
+  "Use bcrypt, scrypt, or Argon2 for passwords — never MD5 or SHA-1.",
+  "Keep dependencies updated — outdated libraries are a top attack surface.",
+  "Enforce access control server-side, never just by hiding a button or URL.",
+  "Avoid deserialising untrusted data — prefer JSON over pickle.",
+  "Log auth failures, but never log passwords or tokens.",
+  "Disable debug mode and verbose errors before going to production.",
+  "Rate-limit login endpoints to stop brute-force attacks.",
+];
+
+const SEV_COLORS = {
+  CRITICAL:'#ef4444', HIGH:'#f97316',
+  MEDIUM:'#eab308',   LOW:'#22c55e', INFORMATIONAL:'#3b82f6'
+};
+const SEV_ICONS = {
+  CRITICAL:'🔴', HIGH:'🟠', MEDIUM:'🟡', LOW:'🟢', INFORMATIONAL:'🔵'
+};
+
+// ═══════════════════════════════════════════════════════════
+//  DRAG-TO-RESIZE
+// ═══════════════════════════════════════════════════════════
+function initResize(handle, leftPanel, rightPanel) {
+  let dragging = false, startX = 0, startLeft = 0, startRight = 0;
+
+  handle.addEventListener('mousedown', e => {
+    dragging = true;
+    startX     = e.clientX;
+    startLeft  = leftPanel.offsetWidth;
+    startRight = rightPanel.offsetWidth;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const newLeft  = Math.max(leftPanel === document.getElementById('panel-left') ? 140 : 300,
+                              startLeft + dx);
+    const newRight = Math.max(leftPanel === document.getElementById('panel-left') ? 300 : 220,
+                              startRight - dx);
+    leftPanel.style.flex  = 'none';
+    leftPanel.style.width = newLeft + 'px';
+    rightPanel.style.flex  = 'none';
+    rightPanel.style.width = newRight + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+}
+
+initResize(
+  document.getElementById('rh1'),
+  document.getElementById('panel-left'),
+  document.getElementById('panel-center')
+);
+initResize(
+  document.getElementById('rh2'),
+  document.getElementById('panel-center'),
+  document.getElementById('panel-right')
+);
+
+// ═══════════════════════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════════════════════
+function switchTab(tab) {
+  document.getElementById('tab-paste').classList.toggle('active', tab === 'paste');
+  document.getElementById('tab-upload').classList.toggle('active', tab === 'upload');
+  document.getElementById('pane-paste').style.display  = tab === 'paste'  ? '' : 'none';
+  document.getElementById('pane-upload').style.display = tab === 'upload' ? '' : 'none';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  FILE UPLOAD
+// ═══════════════════════════════════════════════════════════
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) loadFile(file);
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) loadFile(file);
+}
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    state.activeCode = ev.target.result;
+    document.getElementById('file-name').textContent = '📄 ' + file.name;
+    document.getElementById('file-content').textContent = ev.target.result.slice(0, 800) +
+      (ev.target.result.length > 800 ? '\n… (truncated for preview)' : '');
+    document.getElementById('file-preview').style.display = '';
+    document.getElementById('upload-zone').style.display = 'none';
+  };
+  reader.readAsText(file);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  STATUS BAR
+// ═══════════════════════════════════════════════════════════
+function setStatus(msg, type = 'info') {
+  const bar = document.getElementById('status-bar');
+  bar.textContent = msg;
+  bar.className = type;
+  bar.style.display = msg ? '' : 'none';
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  RUN AUDIT  →  POST /api/v1/scan-code
+// ═══════════════════════════════════════════════════════════
+async function runAudit() {
+  const activeTab = document.getElementById('tab-paste').classList.contains('active');
+  const code = activeTab
+    ? document.getElementById('code-input').value.trim()
+    : state.activeCode.trim();
+
+  if (!code) { setStatus('Please paste or upload some code first.', 'error'); return; }
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>  Analysing…';
+  setStatus('🔍 Cipher is analysing your code…', 'info');
+  document.getElementById('report-section').style.display = 'none';
+
+  try {
+    // ── Use fast-scan: single Gemini call, completes in seconds ──
+    const res = await fetch(API + '/api/v1/fast-scan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ code, filename: 'submission.py' })
+    });
+    if (!res.ok) throw new Error('Server error ' + res.status);
+    const raw = await res.json();
+
+    // Parse the markdown report into a structured data object
+    const data = parseMarkdownReport(raw.report, code);
+
+    state.activeCode   = code;
+    state.activeReport = data;
+    state.activeLang   = detectLang(code);
+    state.messages     = [];
+
+    // Save to localStorage + memory
+    const entry = {
+      time:     new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})
+              + ' · ' + new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short'}),
+      lang:     detectLang(code),
+      severity: data.topSeverity,
+      score:    data.health_score,
+      count:    data.total_findings,
+      report:   data,
+      code:     code,
+    };
+    state.auditHistory.unshift(entry);
+    saveHistory();
+
+    renderHistory();
+    renderReport(data);
+    updateCtxBanner();
+    setStatus('✅ Audit complete — report ready below.', 'success');
+    setTimeout(() => setStatus('', ''), 3000);
+
+  } catch(err) {
+    setStatus('❌ ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Run Security Audit';
+  }
+}
+
+// ── Parse markdown report from fast-scan into structured object ──
+function parseMarkdownReport(reportText, code) {
+  const field = (pat, def='N/A') => {
+    const m = reportText.match(pat);
+    return m ? m[1].trim().replace(/\*+/g,'') : def;
+  };
+
+  const lang    = field(/detected language[:\-\s]+([A-Za-z+#]+)/i, detectLang(code));
+  const quality = field(/quality score[:\-\s]*([\d\s\/]+(?:\/\s*10)?)/i);
+  const dup     = field(/code duplication rating[:\-\s]*(High|Medium|Low|None Detected)/i);
+  const sev     = field(/overall severity rating[:\-\s]*(Critical|High|Medium|Low|Informational)/i, 'Low');
+
+  // Parse findings table
+  const findings = parseMarkdownTable(reportText);
+
+  // Score
+  const deduct = {Critical:25,High:15,Medium:8,Low:3,Informational:1};
+  const score  = Math.max(0, 100 - findings.reduce((s,f) => s+(deduct[f.severity]||5), 0));
+  const grade  = scoreToGrade(score);
+
+  const counts = {CRITICAL:0,HIGH:0,MEDIUM:0,LOW:0};
+  findings.forEach(f => {
+    const k = f.severity.toUpperCase();
+    if (counts[k] !== undefined) counts[k]++;
+  });
+
+  const total = findings.length;
+  let summary = total === 0
+    ? '✅ No security vulnerabilities or code quality issues were detected.'
+    : `The audit identified ${total} issue(s) — ${counts.CRITICAL} Critical, ${counts.HIGH} High, ${counts.MEDIUM} Medium, ${counts.LOW} Low. Health score: ${score}/100 (${grade}).`;
+
+  // Extract refactored code block
+  const codeBlocks = [...reportText.matchAll(/```(?:\w+)?\n([\s\S]*?)```/g)];
+  const refactoredCode = codeBlocks.length ? codeBlocks[codeBlocks.length-1][1] : '';
+
+  // Extract report sections
+  const sections = [];
+  const parts = reportText.split(/\n(?=#{1,3}\s*\d+\.)/);
+  parts.forEach(part => {
+    part = part.trim();
+    const hm = part.match(/^#{1,3}\s*(\d+)\.\s*(.+)/);
+    if (hm) {
+      sections.push({
+        num:   hm[1],
+        title: hm[2].replace(/\*+/g,'').trim(),
+        body:  part.slice(hm[0].length).trim()
+      });
+    }
+  });
+
+  return {
+    filename: 'submission.py',
+    health_score: score,
+    health_grade: grade,
+    executive_summary: summary,
+    total_findings: total,
+    summary_counts: counts,
+    findings: findings.map((f,i) => ({
+      id: i+1, title: f.problem, severity: f.severity.toUpperCase(),
+      severity_score: deduct[f.severity]||5,
+      flagged_by: 'Gemini SAST Agent',
+      line_number: parseInt(f.line)||0,
+      context: f.category, simple_explanation: f.explain,
+      business_impact: '', remediation: '',
+      code_diff: { before: '', after: refactoredCode },
+      rag_verification: { verified: false }
+    })),
+    pr_summary: '',
+    rawReport: reportText,
+    refactoredCode,
+    sections,
+    topSeverity: sev.toUpperCase(),
+    quality, dup, lang,
+  };
+}
+
+function parseMarkdownTable(text) {
+  const lines = text.split('\n');
+  let inTable = false, headers = [], rows = [];
+  for (const ln of lines) {
+    const t = ln.trim();
+    if (!t.startsWith('|')) { if (inTable) break; continue; }
+    if (/^\|[\s\-:|]+\|$/.test(t)) { inTable = true; continue; }
+    const cells = t.slice(1,-1).split('|').map(c => c.trim().replace(/\*+/g,''));
+    if (!headers.length) { headers = cells.map(h => h.toLowerCase()); inTable = true; }
+    else rows.push(cells);
+  }
+  const col = (...kw) => headers.findIndex(h => kw.some(k => h.includes(k)));
+  const ip = col('problem','finding','issue'), il = col('line'),
+        is_ = col('severity'), ic = col('category');
+  const EXPLAIN = {
+    sql:'Attackers can manipulate database queries.',
+    xss:'Attackers can inject scripts into browsers.',
+    secret:'A credential is stored in plain code.',
+    input:'Incoming data is not validated before use.',
+    access:'Users may reach data beyond their permission.',
+    resource:'A resource is not properly closed after use.',
+  };
+  return rows.map(r => {
+    const g = i => (i>=0 && i<r.length ? r[i] : '-');
+    const prob = g(ip); const rawSev = g(is_);
+    const sevMap = {critical:'Critical',high:'High',medium:'Medium',low:'Low',informational:'Informational'};
+    const sev = sevMap[rawSev.toLowerCase()] || 'Medium';
+    const cat = g(ic);
+    const combined = (prob+' '+cat).toLowerCase();
+    const explain = Object.entries(EXPLAIN).find(([k]) => combined.includes(k))?.[1]
+      || 'Flagged as a potential risk — see the full report for detail.';
+    return { problem: prob, line: g(il), severity: sev, category: cat, explain };
+  }).filter(f => f.problem && f.problem !== '-');
+}
+
+function scoreToGrade(score) {
+  if (score >= 90) return 'A (Excellent)';
+  if (score >= 75) return 'B (Good)';
+  if (score >= 60) return 'C (Needs Attention)';
+  if (score >= 40) return 'D (High Risk)';
+  return 'F (Critical Risk)';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LOCAL STORAGE — persist history across refreshes
+// ═══════════════════════════════════════════════════════════
+function saveHistory() {
+  try {
+    // Store without the full report object to keep storage small — store rawReport string
+    const slim = state.auditHistory.map(e => ({
+      time: e.time, lang: e.lang, severity: e.severity,
+      score: e.score, count: e.count, code: e.code,
+      rawReport: e.report.rawReport || '',
+    }));
+    localStorage.setItem('crai_history', JSON.stringify(slim.slice(0, 20)));
+  } catch(e) { /* storage full — ignore */ }
+}
+
+function loadHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('crai_history') || '[]');
+    state.auditHistory = saved.map(e => ({
+      ...e,
+      report: e.rawReport ? parseMarkdownReport(e.rawReport, e.code) : null,
+    })).filter(e => e.report);
+    if (state.auditHistory.length) renderHistory();
+  } catch(e) { /* corrupt storage — ignore */ }
+}
+
+function detectLang(code) {
+  const t = (code||'').toLowerCase();
+  return (t.includes('public class') || t.includes('system.out')) ? 'Java' : 'Python';
+}
+
+function getTopSeverity(counts) {
+  if ((counts.CRITICAL||0) > 0) return 'CRITICAL';
+  if ((counts.HIGH||0) > 0)     return 'HIGH';
+  if ((counts.MEDIUM||0) > 0)   return 'MEDIUM';
+  if ((counts.LOW||0) > 0)      return 'LOW';
+  return 'LOW';
+}
+
+function gradeColor(score) {
+  if (score >= 90) return '#22c55e';
+  if (score >= 75) return '#3b82f6';
+  if (score >= 60) return '#eab308';
+  if (score >= 40) return '#f97316';
+  return '#ef4444';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER HISTORY
+// ═══════════════════════════════════════════════════════════
+function renderHistory() {
+  const el = document.getElementById('audit-history-list');
+  if (!state.auditHistory.length) {
+    el.innerHTML = '<div style="font-size:0.78rem;color:#94a3b8;line-height:1.7;">No scans yet.<br>Run your first audit to see history here.</div>';
+    return;
+  }
+  el.innerHTML = state.auditHistory.map((e, i) => {
+    const sc = SEV_COLORS[e.severity] || '#6366f1';
+    const gc = gradeColor(e.score);
+    return `<div class="hist-item${i===0?' active':''}" onclick="loadHistoryEntry(${i})"
+      style="border-left:3px solid ${sc};">
+      <div class="hist-title">${SEV_ICONS[e.severity]||'⚪'} ${e.lang} Scan</div>
+      <div class="hist-meta">${e.time}</div>
+      <div class="hist-meta">Score: <b style="color:${gc}">${e.score}/100</b> · ${e.count} finding(s)</div>
+    </div>`;
+  }).join('');
+}
+
+function loadHistoryEntry(idx) {
+  const entry = state.auditHistory[idx];
+  state.activeReport = entry.report;
+  state.activeCode   = entry.code;
+  state.messages     = [];
+  updateCtxBanner();
+  renderReport(entry.report);
+  document.querySelectorAll('.hist-item').forEach((el, i) =>
+    el.classList.toggle('active', i === idx));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER REPORT
+// ═══════════════════════════════════════════════════════════
+function renderReport(data) {
+  document.getElementById('report-section').style.display = '';
+
+  const score    = data.health_score;
+  const grade    = data.health_grade;
+  const gc       = gradeColor(score);
+  const counts   = data.summary_counts;
+  const findings = data.findings || [];
+  const lang     = detectLang(state.activeCode);
+
+  // ── Metrics ──
+  const gradeShort = grade.split(' ')[0];
+  const gradeWord  = grade.split('(')[1]?.replace(')','') || '';
+
+  document.getElementById('metrics-row').innerHTML = `
+    <div class="metric-card">
+      <div class="mc-label">Health Score</div>
+      <div class="mc-value" style="color:${gc}">${score}</div>
+      <div class="mc-sub">out of 100</div>
+    </div>
+    <div class="metric-card">
+      <div class="mc-label">Grade</div>
+      <div class="mc-value" style="color:${gc};font-size:1.2rem">${gradeShort}</div>
+      <div class="mc-sub">${gradeWord}</div>
+    </div>
+    <div class="metric-card">
+      <div class="mc-label">Language</div>
+      <div class="mc-value" style="font-size:1.1rem">${lang}</div>
+      <div class="mc-sub">detected</div>
+    </div>
+    <div class="metric-card">
+      <div class="mc-label">Findings</div>
+      <div class="mc-value" style="font-size:1.3rem">${data.total_findings}</div>
+      <div class="mc-sub">total issues</div>
+    </div>
+    <div class="metric-card" style="border-left:3px solid ${SEV_COLORS[getTopSeverity(counts)]||'#6366f1'}">
+      <div class="mc-label">Critical / High</div>
+      <div class="mc-value" style="color:${SEV_COLORS.CRITICAL};font-size:1.2rem">${counts.CRITICAL||0}</div>
+      <div class="mc-sub">High: ${counts.HIGH||0} · Med: ${counts.MEDIUM||0}</div>
+    </div>`;
+
+  // ── Executive summary ──
+  document.getElementById('exec-summary').innerHTML = data.executive_summary
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+  // ── Charts ──
+  renderCharts(findings, score, gc);
+
+  // ── Findings ──
+  if (findings.length) {
+    document.getElementById('findings-section').style.display = '';
+    document.getElementById('findings-list').innerHTML = findings.map(f => {
+      const sc = SEV_COLORS[f.severity] || '#6366f1';
+      const si = SEV_ICONS[f.severity]  || '⚪';
+      return `<div class="fcard" style="border-left-color:${sc}">
+        <div class="fcard-title">
+          ${si} ${esc(f.title)}
+          <span class="sev-pill" style="background:${sc}22;color:${sc}">${f.severity}</span>
+        </div>
+        <div class="fcard-meta">Line ${f.line_number} · Flagged by: ${esc(f.flagged_by)}</div>
+        <div class="fcard-explain">💡 ${esc(f.simple_explanation)}</div>
+        ${f.business_impact ? `<div class="fcard-explain" style="margin-top:4px;">🏢 ${esc(f.business_impact)}</div>` : ''}
+      </div>`;
+    }).join('');
+  } else {
+    document.getElementById('findings-section').style.display = 'none';
+  }
+
+  // ── Full report accordion — use parsed sections from rawReport ──
+  const accordionEl = document.getElementById('report-accordion');
+  if (data.sections && data.sections.length) {
+    accordionEl.innerHTML = data.sections.map((s,i) => {
+      if (s.title.toLowerCase().includes('refactor') || s.title.toLowerCase().includes('secure code')) return '';
+      // Strip code fences from body for display
+      const body = s.body.replace(/```(?:\w+)?\n[\s\S]*?```/g, '<em style="color:#6366f1">(see Refactored Code section below)</em>');
+      return `<div class="accordion">
+        <div class="acc-header" onclick="toggleAcc(this)">
+          <span>${s.num}. ${esc(s.title)}</span>
+          <span class="acc-arrow${i===0?' open':''}">›</span>
+        </div>
+        <div class="acc-body${i===0?' open':''}" style="white-space:pre-wrap">${body}</div>
+      </div>`;
+    }).join('');
+  } else {
+    renderAccordion(data);
+  }
+
+  // ── Refactored code ──
+  const rcEl = document.getElementById('refactored-code');
+  if (data.refactoredCode) {
+    rcEl.innerHTML = `<pre class="code-block">${esc(data.refactoredCode)}</pre>`;
+  } else if (!findings.length) {
+    rcEl.innerHTML = `<div style="color:var(--green);font-size:0.86rem;padding:10px;">✅ No critical code changes required — the submitted code is clean.</div>`;
+  } else {
+    rcEl.innerHTML = `<div style="color:var(--txt-sec);font-size:0.86rem;padding:10px;">Refactored code not available for this report.</div>`;
+  }
+
+  // Scroll top
+  document.getElementById('center-body').scrollTop = 0;
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CHARTS
+// ═══════════════════════════════════════════════════════════
+function renderCharts(findings, score, gc) {
+  // Destroy old charts
+  ['chartSev','chartCat','chartGauge'].forEach(k => {
+    if (state[k]) { state[k].destroy(); state[k] = null; }
+  });
+
+  const darkOpts = {
+    color: '#94a3b8',
+    plugins: { legend: { labels: { color:'#94a3b8', boxWidth:12, font:{size:11} } } }
+  };
+
+  // ── Severity donut ──
+  const sevCounts = {};
+  findings.forEach(f => { sevCounts[f.severity] = (sevCounts[f.severity]||0)+1; });
+  const sevLabels = Object.keys(sevCounts);
+  const sevData   = sevLabels.map(k => sevCounts[k]);
+  const sevColors = sevLabels.map(k => SEV_COLORS[k]||'#6366f1');
+
+  state.chartSev = new Chart(document.getElementById('chart-sev'), {
+    type: 'doughnut',
+    data: { labels: sevLabels, datasets:[{data:sevData, backgroundColor:sevColors,
+      borderColor:'#1a1a2e', borderWidth:2}] },
+    options: { ...darkOpts, cutout:'58%',
+      plugins:{ ...darkOpts.plugins, tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw}`}} } }
+  });
+
+  // ── Category bar ──
+  const catCounts = {};
+  findings.forEach(f => {
+    const cat = (f.title||'General').slice(0,22);
+    catCounts[cat] = (catCounts[cat]||0)+1;
+  });
+  const catLabels = Object.keys(catCounts).slice(0,8);
+  const catData   = catLabels.map(k => catCounts[k]);
+
+  state.chartCat = new Chart(document.getElementById('chart-cat'), {
+    type: 'bar',
+    data: { labels: catLabels, datasets:[{data:catData, backgroundColor:'rgba(99,102,241,0.7)',
+      borderColor:'#6366f1', borderWidth:1}] },
+    options: { ...darkOpts, indexAxis:'y',
+      scales:{ x:{ticks:{color:'#94a3b8',font:{size:10}}, grid:{color:'rgba(255,255,255,0.05)'}},
+               y:{ticks:{color:'#94a3b8',font:{size:10}}, grid:{display:false}} },
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>` ${c.raw} issue(s)`}} } }
+  });
+
+  // ── Health gauge (doughnut trick) ──
+  const remaining = 100 - score;
+  state.chartGauge = new Chart(document.getElementById('chart-gauge'), {
+    type: 'doughnut',
+    data: { datasets:[{data:[score, remaining],
+      backgroundColor:[gc,'rgba(255,255,255,0.05)'],
+      borderColor:['rgba(0,0,0,0)','rgba(0,0,0,0)'], borderWidth:0}] },
+    options: { circumference:180, rotation:-90, cutout:'72%',
+      plugins:{legend:{display:false}, tooltip:{enabled:false}} }
+  });
+  document.getElementById('gauge-num').textContent  = score + '/100';
+  document.getElementById('gauge-num').style.color  = gc;
+  document.getElementById('gauge-grade').textContent = '';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ACCORDION  (Full Technical Report)
+// ═══════════════════════════════════════════════════════════
+function renderAccordion(data) {
+  const findings = data.findings || [];
+
+  // Build sections from findings grouped by category
+  const sections = [];
+
+  // Section 1: Overview
+  sections.push({
+    title: '1. Scan Overview',
+    body: `
+      <p><strong>File:</strong> ${esc(data.filename)}</p>
+      <p><strong>Health Score:</strong> ${data.health_score}/100 (${data.health_grade})</p>
+      <p><strong>Total Findings:</strong> ${data.total_findings}</p>
+      <p><strong>Critical:</strong> ${data.summary_counts.CRITICAL||0} &nbsp;
+         <strong>High:</strong> ${data.summary_counts.HIGH||0} &nbsp;
+         <strong>Medium:</strong> ${data.summary_counts.MEDIUM||0} &nbsp;
+         <strong>Low:</strong> ${data.summary_counts.LOW||0}</p>
+      <p style="margin-top:8px">${esc(data.executive_summary)}</p>`
+  });
+
+  // Section 2: Security Findings
+  const secFindings = findings.filter(f =>
+    f.flagged_by && (f.flagged_by.toLowerCase().includes('security') ||
+    f.flagged_by.toLowerCase().includes('bandit') ||
+    f.flagged_by.toLowerCase().includes('semgrep') ||
+    f.flagged_by.toLowerCase().includes('ast')));
+
+  if (secFindings.length) {
+    sections.push({
+      title: '2. Security Vulnerabilities',
+      body: secFindings.map(f =>
+        `<p><strong>${esc(f.title)}</strong> — ${f.severity}<br>
+         ${esc(f.simple_explanation)}<br>
+         <em style="color:#94a3b8">Business impact: ${esc(f.business_impact)}</em></p>`
+      ).join('<hr style="border-color:#2a2a45;margin:8px 0">')
+    });
+  }
+
+  // Section 3: Quality Issues
+  const qualFindings = findings.filter(f =>
+    f.flagged_by && (f.flagged_by.toLowerCase().includes('quality') ||
+    f.flagged_by.toLowerCase().includes('pylint') ||
+    f.flagged_by.toLowerCase().includes('radon') ||
+    f.flagged_by.toLowerCase().includes('mypy')));
+
+  if (qualFindings.length) {
+    sections.push({
+      title: '3. Code Quality Issues',
+      body: qualFindings.map(f =>
+        `<p><strong>${esc(f.title)}</strong> — ${f.severity}<br>
+         ${esc(f.simple_explanation)}</p>`
+      ).join('<hr style="border-color:#2a2a45;margin:8px 0">')
+    });
+  }
+
+  // Section 4: Remediation
+  if (findings.length) {
+    sections.push({
+      title: '4. Remediation Recommendations',
+      body: findings.slice(0,5).map((f,i) =>
+        `<p><strong>${i+1}. ${esc(f.title)}</strong><br>
+         ${esc(f.remediation ? f.remediation.slice(0,300) : 'Review and apply secure coding standards.')}</p>`
+      ).join('<hr style="border-color:#2a2a45;margin:8px 0">')
+    });
+  }
+
+  // Section 5: PR Summary
+  if (data.pr_summary && data.pr_summary !== 'No summary generated.' &&
+      data.pr_summary !== 'PR summary generation pending.') {
+    sections.push({ title: '5. PR Review Summary', body: `<p>${esc(data.pr_summary).replace(/\n/g,'<br>')}</p>` });
+  }
+
+  document.getElementById('report-accordion').innerHTML = sections.map((s,i) => `
+    <div class="accordion">
+      <div class="acc-header" onclick="toggleAcc(this)">
+        <span>${esc(s.title)}</span>
+        <span class="acc-arrow${i===0?' open':''}">›</span>
+      </div>
+      <div class="acc-body${i===0?' open':''}">${s.body}</div>
+    </div>`).join('');
+}
+
+function toggleAcc(header) {
+  const arrow = header.querySelector('.acc-arrow');
+  const body  = header.nextElementSibling;
+  const open  = body.classList.toggle('open');
+  arrow.classList.toggle('open', open);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  REFACTORED CODE
+// ═══════════════════════════════════════════════════════════
+function renderRefactoredCode(findings) {
+  const el = document.getElementById('refactored-code');
+  // Use the code_diff.after of the first critical/high finding if available
+  const best = findings.find(f => f.code_diff && f.code_diff.after &&
+    f.code_diff.after.length > 30) || findings[0];
+
+  if (best && best.code_diff && best.code_diff.after) {
+    el.innerHTML = `<pre class="code-block">${esc(best.code_diff.after)}</pre>`;
+  } else if (findings.length === 0) {
+    el.innerHTML = `<div style="color:var(--green);font-size:0.86rem;padding:10px;">
+      ✅ No critical code changes required — the submitted code is clean.</div>`;
+  } else {
+    el.innerHTML = `<div style="color:var(--txt-sec);font-size:0.86rem;padding:10px;">
+      Refactored code will appear here after a full scan with API key configured.</div>`;
+  }
+}
+
+function esc(str) {
+  return String(str||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  PDF DOWNLOAD  (uses jsPDF from CDN — loaded below)
+// ═══════════════════════════════════════════════════════════
+async function downloadPDF() {
+  const data = state.activeReport;
+  if (!data) { alert('Run an audit first.'); return; }
+
+  const btn = document.querySelector('.dl-btn');
+  btn.textContent = '⏳ Generating PDF…';
+  btn.disabled = true;
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation:'p', unit:'mm', format:'a4' });
+    const W = 210, M = 15, CW = W - M*2;
+    let y = M;
+
+    const line = (txt, size=10, bold=false, color=[30,27,75]) => {
+      doc.setFontSize(size);
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      doc.setTextColor(...color);
+      const lines = doc.splitTextToSize(String(txt||''), CW);
+      lines.forEach(l => {
+        if (y > 275) { doc.addPage(); y = M; }
+        doc.text(l, M, y);
+        y += size * 0.45 + 1;
+      });
+    };
+
+    const rule = (r=200,g=200,b=200) => {
+      doc.setDrawColor(r,g,b); doc.setLineWidth(0.3);
+      doc.line(M, y, M+CW, y); y += 4;
+    };
+
+    const gap = (n=4) => { y += n; };
+
+    // ── Cover ──
+    doc.setFillColor(30,27,75);
+    doc.rect(0,0,W,22,'F');
+    doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.setTextColor(255,255,255);
+    doc.text('CodeReview.AI', M, 10);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Security & Code Quality Audit Report  ·  Infosys Springboard', M, 17);
+    y = 30;
+
+    // ── Meta table ──
+    const findings = data.findings || [];
+    const lang = detectLang(state.activeCode);
+    const metaRows = [
+      ['Report Date', new Date().toLocaleDateString('en-GB',{year:'numeric',month:'long',day:'numeric'})
+                    + '  ' + new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})],
+      ['Language', lang],
+      ['Health Score', data.health_score + ' / 100  (' + data.health_grade + ')'],
+      ['Total Findings', String(data.total_findings)],
+      ['Critical', String(data.summary_counts.CRITICAL||0)],
+      ['High', String(data.summary_counts.HIGH||0)],
+      ['Medium', String(data.summary_counts.MEDIUM||0)],
+      ['Low', String(data.summary_counts.LOW||0)],
+    ];
+    metaRows.forEach(([k,v]) => {
+      doc.setFontSize(9); doc.setFont('helvetica','bold');
+      doc.setTextColor(99,102,241);
+      doc.text(k + ':', M, y);
+      doc.setFont('helvetica','normal');
+      doc.setTextColor(30,41,59);
+      doc.text(String(v), M+38, y);
+      y += 5.5;
+    });
+    gap(4); rule();
+
+    // ── Executive Summary ──
+    line('Executive Summary', 12, true, [30,27,75]);
+    gap(2); rule(226,232,240);
+    line(data.executive_summary.replace(/\*\*/g,''), 9, false, [30,41,59]);
+    gap(6); rule();
+
+    // ── Findings table ──
+    if (findings.length) {
+      line('Findings Summary', 12, true, [30,27,75]);
+      gap(2); rule(226,232,240);
+
+      const colW = [8, 70, 22, 14, 46];
+      const headers = ['#','Finding','Severity','Line','Category'];
+      doc.setFillColor(30,27,75);
+      doc.rect(M, y, CW, 7, 'F');
+      doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+      let cx = M+2;
+      headers.forEach((h,i) => { doc.text(h, cx, y+4.5); cx += colW[i]; });
+      y += 7;
+
+      findings.forEach((f,idx) => {
+        if (y > 270) { doc.addPage(); y = M; }
+        const bg = idx%2===0 ? [255,255,255] : [248,250,252];
+        doc.setFillColor(...bg); doc.rect(M, y, CW, 7, 'F');
+        doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(30,41,59);
+        const row = [String(idx+1),
+          (f.title||'').slice(0,38), f.severity,
+          String(f.line_number), (f.title||'').slice(0,22)];
+        cx = M+2;
+        const sevColorMap = {CRITICAL:[220,38,38],HIGH:[249,115,22],
+          MEDIUM:[234,179,8],LOW:[34,197,94]};
+        row.forEach((cell,ci) => {
+          if (ci===2) { const c=sevColorMap[f.severity]||[100,100,100];
+            doc.setTextColor(...c); doc.setFont('helvetica','bold'); }
+          else { doc.setTextColor(30,41,59); doc.setFont('helvetica','normal'); }
+          doc.text(cell.slice(0,colW[ci]/2.2|0), cx, y+4.5);
+          cx += colW[ci];
+        });
+        y += 7;
+      });
+      gap(4); rule();
+    }
+
+    // ── Detailed findings ──
+    if (findings.length) {
+      line('Detailed Findings', 12, true, [30,27,75]);
+      gap(2); rule(226,232,240);
+      findings.forEach((f,i) => {
+        if (y > 265) { doc.addPage(); y = M; }
+        line(`#${i+1} — ${f.title}`, 10, true, [30,27,75]);
+        line(`Severity: ${f.severity}  ·  Line: ${f.line_number}`, 8.5, false, [100,116,139]);
+        line(f.simple_explanation, 9, false, [30,41,59]);
+        if (f.business_impact) line('Business Impact: ' + f.business_impact, 8.5, false, [100,116,139]);
+        gap(4);
+      });
+      rule();
+    }
+
+    // ── Footer ──
+    if (y > 265) { doc.addPage(); y = M; }
+    gap(4); rule(226,232,240);
+    line('Generated by CodeReview.AI  ·  Infosys Springboard  ·  ' +
+      new Date().getFullYear(), 8, false, [148,163,184]);
+
+    doc.save(`CodeReviewAI_${new Date().toISOString().slice(0,10)}.pdf`);
+  } catch(err) {
+    alert('PDF error: ' + err.message);
+  } finally {
+    btn.textContent = '📄 Download PDF Audit Report';
+    btn.disabled = false;
+  }
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CIPHER CHATBOT
+// ═══════════════════════════════════════════════════════════
+function updateCtxBanner() {
+  const banner = document.getElementById('ctx-banner');
+  if (state.activeCode.trim()) {
+    document.getElementById('ctx-lang').textContent = detectLang(state.activeCode);
+    banner.style.display = '';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
+function handleCipherKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToCI(); }
+}
+
+function addMessage(role, content) {
+  state.messages.push({ role, content });
+  renderMessages();
+}
+
+function renderMessages() {
+  const el = document.getElementById('cipher-messages');
+  if (!state.messages.length) {
+    el.innerHTML = `<div class="welcome">
+      <div class="welcome-icon">🔐</div>
+      <div class="welcome-name">Hi, I'm Cipher</div>
+      <div class="welcome-sub">Your AI Security Assistant.<br>Ask me about your code, vulnerabilities,<br>or any secure coding question.</div>
+    </div>`;
+    document.getElementById('clear-chat-btn').style.display = 'none';
+    return;
+  }
+
+  el.innerHTML = state.messages.map(m => {
+    if (m.role === 'user') {
+      return `<div class="msg-user">${esc(m.content)}</div>`;
+    } else {
+      // Use marked.js to render markdown for bot responses
+      const html = typeof marked !== 'undefined'
+        ? marked.parse(m.content)
+        : esc(m.content).replace(/\n/g,'<br>');
+      return `<div class="msg-bot">
+        <div class="msg-bot-name">🔐 Cipher</div>
+        ${html}
+      </div>`;
+    }
+  }).join('');
+
+  document.getElementById('clear-chat-btn').style.display = '';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendToCI() {
+  const input = document.getElementById('cipher-input');
+  const query = input.value.trim();
+  if (!query) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  document.getElementById('cipher-send').disabled = true;
+
+  addMessage('user', query);
+
+  // Thinking indicator
+  state.messages.push({ role: 'assistant', content: '⏳ Thinking…', _thinking: true });
+  renderMessages();
+
+  let codeCtx = '';
+  if (state.activeCode.trim()) {
+    codeCtx  = `=== CURRENT CODE UNDER REVIEW ===\n${state.activeCode}\n`;
+  }
+  if (state.activeReport) {
+    codeCtx += `\n=== AUDIT SUMMARY ===\nHealth Score: ${state.activeReport.health_score}/100\n`;
+    codeCtx += `Total Findings: ${state.activeReport.total_findings}\n`;
+    codeCtx += `Executive Summary: ${state.activeReport.executive_summary}\n`;
+  }
+
+  try {
+    const res = await fetch(API + '/api/v1/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        code_context:  codeCtx,
+        chat_history:  state.messages.filter(m => !m._thinking).slice(-10),
+      })
+    });
+
+    // Remove thinking indicator
+    state.messages = state.messages.filter(m => !m._thinking);
+
+    if (!res.ok) throw new Error('Backend error ' + res.status);
+    const data = await res.json();
+    addMessage('assistant', data.response || 'No response returned.');
+
+  } catch(err) {
+    state.messages = state.messages.filter(m => !m._thinking);
+    addMessage('assistant',
+      '⚠️ Cannot reach the backend.\n\nPlease make sure you\'ve started it:\n```\nuvicorn backend.main:app --reload --port 8000\n```');
+  } finally {
+    document.getElementById('cipher-send').disabled = false;
+    input.focus();
+  }
+}
+
+function clearChat() {
+  if (state.messages.length) {
+    state.chatHistory.unshift({
+      time:  new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),
+      count: state.messages.length,
+    });
+    renderChatHistory();
+  }
+  state.messages = [];
+  renderMessages();
+}
+
+function renderChatHistory() {
+  const el = document.getElementById('chat-history-list');
+  if (!state.chatHistory.length) {
+    el.innerHTML = '<div style="font-size:0.78rem;color:#94a3b8;">No saved sessions yet.</div>';
+    return;
+  }
+  el.innerHTML = state.chatHistory.slice(0,6).map((s,i) =>
+    `<div class="hist-item">
+      <div class="hist-title">💬 Session ${state.chatHistory.length - i}</div>
+      <div class="hist-meta">${s.time} · ${s.count} messages</div>
+    </div>`
+  ).join('');
+}
+
+// ── Init ──
+updateCtxBanner();
+loadHistory();
+</script>
+</body>
+</html>

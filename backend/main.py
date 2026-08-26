@@ -11,6 +11,8 @@ import traceback
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 # Consistent relative imports for backend modules
@@ -158,6 +160,33 @@ class ScanResponse(BaseModel):
 # ==========================================
 
 @app.get("/")
+def serve_frontend():
+    """Serve the main HTML frontend."""
+    frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'index.html')
+    return FileResponse(os.path.abspath(frontend_path), media_type="text/html")
+
+
+class FastScanRequest(BaseModel):
+    code: str = Field(..., description="Raw code string to analyze")
+    filename: str = Field(default="snippet.py")
+
+
+@app.post("/api/v1/fast-scan")
+def fast_scan(payload: FastScanRequest):
+    """
+    Fast single-Gemini-call analysis. Returns the raw markdown report
+    from analyze_and_remediate directly — no subprocess tools, no per-finding
+    LLM loops. Completes in seconds instead of minutes.
+    """
+    if not payload.code.strip():
+        raise HTTPException(status_code=400, detail="Code cannot be empty.")
+    try:
+        report = analyze_and_remediate(payload.code)
+        return {"report": report, "filename": payload.filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
 def health_check():
     return {
         "status": "online",
@@ -321,49 +350,105 @@ def format_api_response(filename: str, pipeline_report: dict) -> ScanResponse:
 
 
 # ==========================================
-# 🖥️ Streamlit Frontend Interface
+# Frontend is now served as index.html at GET /
 # ==========================================
-import streamlit as st
-import requests
+# as a static HTML app at GET /
+# ==========================================
+# 3. Generate LLM Auto-Fixes & Diffs via Coordinator Agent
+    coordinator = CoordinatorAgent()
+    remediation_result = coordinator.coordinate_analysis_and_remediation(
+        code=code,
+        security_findings=sec_findings,
+        quality_findings=qual_findings,
+        api_key=api_key
+    )
 
-# Only runs when executed via Streamlit (streamlit run main.py)
-if __name__ == "__main__" or "streamlit" in sys.modules:
-    st.title("🤖 RAG-Enhanced AI Code Reviewer")
+    # 4. Generate PR Summary & Risk Score
+    pr_summarizer = PRSummaryAgent()
+    pr_summary = pr_summarizer.generate_summary(
+        code=code,
+        security_findings=sec_findings,
+        quality_findings=qual_findings,
+        remediation_results=remediation_result
+    )
 
-    st.subheader("💬 Conversational Code Assistant")
+    total_time = round(time.time() - start_time, 2)
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    return {
+        "filename": filename,
+        "execution_time_seconds": total_time,
+        "security_findings": sec_findings,
+        "quality_findings": qual_findings,
+        "remediation": remediation_result,
+        "pr_summary": pr_summary
+    }
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
 
-    if user_query := st.chat_input("Ask a question about your code or security findings..."):
-        st.session_state.messages.append({"role": "user", "content": user_query})
-        with st.chat_message("user"):
-            st.markdown(user_query)
+# ==========================================
+# 🚀 Pydantic Request/Response Models
+# ==========================================
+class CodeAnalysisRequest(BaseModel):
+    code: str = Field(..., description="Source code snippet to analyze")
+    filename: str = Field(default="snippet.py", description="Name of the file being analyzed")
+    api_key: Optional[str] = Field(default=None, description="Optional custom LLM API Key")
 
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    current_code = st.session_state.get("scanned_code", "")
-                    
-                    payload = {
-                        "query": user_query,
-                        "code_context": current_code,
-                        "chat_history": st.session_state.messages[:-1]
-                    }
-                    
-                    response = requests.post("http://localhost:8000/api/v1/chat", json=payload)
-                    if response.status_code == 200:
-                        answer = response.json().get("response", "No response returned.")
-                    else:
-                        answer = f"Error from backend: {response.text}"
-                    
-                    st.markdown(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-                except Exception as e:
-                    error_msg = f"Failed to connect to backend chat endpoint: {e}"
-                    st.markdown(error_msg)
-                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
+
+# ==========================================
+# 🌐 API Endpoints
+# ==========================================
+@app.get("/")
+def read_root():
+    return {
+        "status": "online",
+        "service": "RAG-Enhanced AI Code Analysis Pipeline",
+        "version": "2.0.0",
+        "docs_url": "/docs"
+    }
+
+
+@app.post("/api/v1/analyze/code")
+def analyze_code_endpoint(payload: CodeAnalysisRequest):
+    """
+    Analyze raw source code for security vulnerabilities, code quality issues,
+    and generate automated remediation diffs.
+    """
+    try:
+        if not payload.code.strip():
+            raise HTTPException(status_code=400, detail="Provided code snippet is empty.")
+        
+        result = run_full_analysis(
+            code=payload.code,
+            filename=payload.filename,
+            api_key=payload.api_key
+        )
+        return result
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/analyze/upload")
+async def analyze_file_endpoint(file: UploadFile = File(...), api_key: Optional[str] = None):
+    """
+    Upload a source code file for comprehensive pipeline analysis.
+    """
+    try:
+        contents = await file.read()
+        code_str = contents.decode("utf-8")
+        
+        result = run_full_analysis(
+            code=code_str,
+            filename=file.filename or "uploaded_file.py",
+            api_key=api_key
+        )
+        return result
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Uploaded file must be a valid UTF-8 text/code file.")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
