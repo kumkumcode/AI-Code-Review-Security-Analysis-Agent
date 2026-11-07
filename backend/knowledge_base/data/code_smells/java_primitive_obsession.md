@@ -73,7 +73,7 @@ public class UserServiceSecure {
     public void registerUser(String username, Email email) {
         // No validation needed here! The type guarantees the email is valid.
     }
-}
+}                                                                                                                           
 
 ---
 
