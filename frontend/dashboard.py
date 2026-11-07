@@ -118,6 +118,47 @@ div[data-baseweb="input"]:focus-within {
 .hud-bracket strong {
     color: #38bdf8;
 }
+
+/* ---- Make report + chatbot text readable ---- */
+
+/* Report (expander contents, tables, lists) */
+[data-testid="stExpander"] details > div p,
+[data-testid="stExpander"] details > div li,
+[data-testid="stExpander"] details > div span,
+[data-testid="stExpander"] details > div td,
+[data-testid="stExpander"] details > div th,
+[data-testid="stExpander"] details > div em,
+[data-testid="stExpander"] details > div strong,
+[data-testid="stExpander"] details > div h1,
+[data-testid="stExpander"] details > div h2,
+[data-testid="stExpander"] details > div h3,
+[data-testid="stExpander"] details > div h4 {
+    color: #e2e8f0 !important;
+    opacity: 1 !important;
+}
+
+/* Collapsed report section titles (open one keeps its white header) */
+[data-testid="stExpander"] details:not([open]) summary,
+[data-testid="stExpander"] details:not([open]) summary p,
+[data-testid="stExpander"] details:not([open]) summary span {
+    color: #cbd5e1 !important;
+    opacity: 1 !important;
+}
+
+/* Chatbot messages */
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span,
+[data-testid="stChatMessage"] strong,
+[data-testid="stChatMessage"] em,
+[data-testid="stChatMessage"] h1,
+[data-testid="stChatMessage"] h2,
+[data-testid="stChatMessage"] h3,
+[data-testid="stChatMessage"] td,
+[data-testid="stChatMessage"] th {
+    color: #f1f5f9 !important;
+    opacity: 1 !important;
+}
 </style>""",
     unsafe_allow_html=True,
 )
